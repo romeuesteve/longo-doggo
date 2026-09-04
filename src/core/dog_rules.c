@@ -18,6 +18,8 @@
 
 #include "../objects/box.h"
 #include "../objects/hole.h"
+#include "../objects/house.h"
+#include "../objects/items.h"
 #include "events.h"
 
 #include <math.h>
@@ -88,25 +90,24 @@ static void resolve_pickups(SimWorld *w)
     float hx = (float)(sim_cell_x(head) * SIM_CELL + 8);
     float hy = (float)(sim_cell_y(head) * SIM_CELL + 8);
 
-    for (int i = 0; i < w->apple_count; i++) {
-        SimItem *apple = &w->apples[i];
-        if (!apple->alive || apple->cell != head) continue;
-        apple->alive = 0;
+    int apple = apple_index_at(head);
+    if (apple >= 0) {
+        apple_consume(apple);
         grow_chain(w, dog->detached_cell);
         events_fx(FX_ONE, hx, hy - 8.0f, 0, 0, 0, 0, 0);
-        events_fx(FX_SMOKE_BURST,  hx, hy, 0, 0, 0, 7, 0);
+        events_fx(FX_SMOKE_BURST, hx, hy, 0, 0, 0, 7, 0);
         events_sound(SND_POOF, 0);
     }
 
-    for (int i = 0; i < w->skull_count; i++) {
-        SimItem *skull = &w->skulls[i];
-        if (!skull->alive || skull->cell != head) continue;
-        skull->alive = 0;
+    int skull = skull_index_at(head);
+    if (skull >= 0) {
+        skull_consume(skull);
         if (dog->length > 2) {
             uint16_t tail = dog->chain[dog->length - 1];
             shrink_chain(w);
-            events_fx(FX_SMOKE_BURST,  (float)(sim_cell_x(tail) * SIM_CELL + 8),
-                        (float)(sim_cell_y(tail) * SIM_CELL + 8), 0, 0, 0, 7, 0);
+            events_fx(FX_SMOKE_BURST,
+                      (float)(sim_cell_x(tail) * SIM_CELL + 8),
+                      (float)(sim_cell_y(tail) * SIM_CELL + 8), 0, 0, 0, 7, 0);
             events_fx(FX_ONE, hx, hy - 8.0f, 0, 0, 0, 0, 1);
         } else {
             dog->alive = 0;
@@ -114,17 +115,11 @@ static void resolve_pickups(SimWorld *w)
         events_sound(SND_POOF, 0);
     }
 
-    if (dog->alive && w->win.alive && w->goal.alive && w->goal.remain <= 0) {
-        for (int z = 0; z < w->win.zone_count; z++) {
-            if (w->win.zone[z] == head) {
-                w->win.alive = 0;
-                w->trans.active = 1;
-                w->trans.room_num++;
-                w->trans.next_lvl = 1;
-                w->trans.open_transition = 1;
-                break;
-            }
-        }
+    if (dog->alive && house_try_win(head)) {
+        w->trans.active = 1;
+        w->trans.room_num++;
+        w->trans.next_lvl = 1;
+        w->trans.open_transition = 1;
     }
 }
 

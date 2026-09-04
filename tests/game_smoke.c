@@ -8,6 +8,8 @@
 #include "core/world.h"
 
 #include "objects/box.h"
+#include "objects/house.h"
+#include "objects/items.h"
 #include "objects/hole.h"
 
 #include <assert.h>
@@ -117,55 +119,55 @@ static void test_apple_and_skull_length(void)
     memset(&input, 0, sizeof(input));
 
     /* move the head beside the tutorial apple and step into it */
-    SimItem *apple = NULL;
-    for (int i = 0; i < world.apple_count; i++) {
-        if (world.apples[i].alive) {
-            apple = &world.apples[i];
+    int apple = -1;
+    for (int i = 0; i < apple_count(); i++) {
+        if (apple_alive(i)) {
+            apple = i;
             break;
         }
     }
-    assert(apple != NULL);
-    d->cx = sim_cell_x(apple->cell) - 1;
-    d->cy = sim_cell_y(apple->cell);
+    assert(apple >= 0);
+    d->cx = sim_cell_x(apple_cell(apple)) - 1;
+    d->cy = sim_cell_y(apple_cell(apple));
     int length_before = d->length;
 
     input.held_right = 1;
     tick_with(&input);
     tick_idle(1);
     assert(dog()->length == length_before + 1);
-    assert(apple->alive == 0);
+    assert(apple_alive(apple) == false);
     /* the new tail segment sits on the cell the tail just left */
     assert(dog()->chain[dog()->length - 1] == dog()->detached_cell);
 
     /* a skull at length 3 shortens; at length 2 it kills the dog */
-    SimItem *skull = NULL;
-    for (int i = 0; i < world.skull_count; i++) {
-        if (world.skulls[i].alive) {
-            skull = &world.skulls[i];
+    int skull = -1;
+    for (int i = 0; i < skull_count(); i++) {
+        if (skull_alive(i)) {
+            skull = i;
             break;
         }
     }
-    assert(skull != NULL);
+    assert(skull >= 0);
     d = dog();
     d->length = 3;
-    d->cx = sim_cell_x(skull->cell) - 1;
-    d->cy = sim_cell_y(skull->cell);
+    d->cx = sim_cell_x(skull_cell(skull)) - 1;
+    d->cy = sim_cell_y(skull_cell(skull));
     input.held_right = 1;
     tick_with(&input);
     tick_idle(1);
     assert(dog()->alive);
     assert(dog()->length == 2);
 
-    for (int i = 0; i < world.skull_count; i++) {
-        if (world.skulls[i].alive) {
-            skull = &world.skulls[i];
+    for (int i = 0; i < skull_count(); i++) {
+        if (skull_alive(i)) {
+            skull = i;
             break;
         }
     }
-    assert(skull != NULL);
+    assert(skull >= 0);
     d = dog();
-    d->cx = sim_cell_x(skull->cell) - 1;
-    d->cy = sim_cell_y(skull->cell);
+    d->cx = sim_cell_x(skull_cell(skull)) - 1;
+    d->cy = sim_cell_y(skull_cell(skull));
     input.held_right = 1;
     tick_with(&input);
     tick_idle(1);
@@ -293,15 +295,14 @@ static void test_buttons_door_win_retry(void)
 
     /* win: length 2 makes the house ready; stepping into the win zone
      * advances to the next runtime room */
-    SimGoal *goal = &world.goal;
     world.dog.length = 2;
     tick_idle(1);
-    assert(goal->remain == 0);
-    assert(world.win.alive);
-    world.dog.cx = sim_cell_x(world.win.zone[0]);
-    world.dog.cy = sim_cell_y(world.win.zone[0]);
+    assert(house_remain() == 0);
+    assert(house_win_alive());
+    world.dog.cx = sim_cell_x(house_win_zone_cell(0));
+    world.dog.cy = sim_cell_y(house_win_zone_cell(0));
     tick_idle(2);
-    assert(!world.win.alive);
+    assert(!house_win_alive());
     assert(world.trans.next_lvl == 1);
     tick_idle(200);
     assert(world.room_index == SIM_ROOM_LEVEL3);

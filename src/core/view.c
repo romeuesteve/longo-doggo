@@ -1,6 +1,7 @@
 #include "view.h"
 
 #include "../objects/box.h"
+#include "../objects/house.h"
 #include "events.h"
 
 #include <math.h>
@@ -302,12 +303,12 @@ static void update_goal_pulse(Pres *p, const SimWorld *w)
 {
     /* oGoalUp draw-event port: the house squash-bounces through count (on
      * win) and count2 (when more length still has to be lost). */
-    if (!w->goal.alive) return;
-    int win_ready = w->goal.remain <= 0;
+    if (!house_alive()) return;
+    int win_ready = house_win_ready();
     /* oGoal instance position is the cell centre column, one cell below
      * the cell top: smoke spawns near (goal->x, goal->y - 8). */
-    float px = (float)(sim_cell_x(w->goal.cell) * SIM_CELL + 8);
-    float py = (float)(sim_cell_y(w->goal.cell) * SIM_CELL + 8);
+    float px = (float)(sim_cell_x(house_goal_cell()) * SIM_CELL + 8);
+    float py = (float)(sim_cell_y(house_goal_cell()) * SIM_CELL + 8);
 
     if (!win_ready) {
         if (p->goal_count2 > 0) {

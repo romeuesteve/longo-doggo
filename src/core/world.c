@@ -7,6 +7,8 @@
 #include "world.h"
 
 #include "../objects/box.h"
+#include "../objects/house.h"
+#include "../objects/items.h"
 #include "../objects/hole.h"
 #include "events.h"
 #include "solid.h"
@@ -248,9 +250,10 @@ static void setup_dialogue(SimWorld *w, int room_index, float x, float y)
             d->box[i].text = TUTORIAL_TEXTS[i];
         }
         /* box 3 sits beside the first skull (skull->x - 8) */
-        for (int i = 0; i < w->skull_count; i++) {
-            if (w->skulls[i].alive) {
-                d->box[3].x = (float)(sim_cell_x(w->skulls[i].cell) * SIM_CELL - 8);
+        for (int i = 0; i < skull_count(); i++) {
+            if (skull_alive(i)) {
+                d->box[3].x =
+                    (float)(sim_cell_x(skull_cell(i)) * SIM_CELL - 8);
                 break;
             }
         }
@@ -306,17 +309,13 @@ static void load_room(SimWorld *w, int room_index)
     memset(&w->dog, 0, sizeof(w->dog));
     box_reset();
     hole_reset();
-    memset(w->apples, 0, sizeof(w->apples));
-    w->apple_count = 0;
-    memset(w->skulls, 0, sizeof(w->skulls));
-    w->skull_count = 0;
+    items_reset();
     memset(w->buttons, 0, sizeof(w->buttons));
     w->button_count = 0;
     w->buttons_pressed = 0;
     memset(w->doors, 0, sizeof(w->doors));
     w->door_count = 0;
-    memset(&w->goal, 0, sizeof(w->goal));
-    memset(&w->win, 0, sizeof(w->win));
+    house_reset();
     w->has_title = 0;
     memset(&w->dialogue, 0, sizeof(w->dialogue));
 
@@ -343,20 +342,12 @@ static void load_room(SimWorld *w, int room_index)
                                    (int)floorf(p->y / SIM_CELL)));
             break;
         case LONGO_OBJ_APPLE:
-            if (w->apple_count < SIM_MAX_ITEMS) {
-                SimItem *a = &w->apples[w->apple_count++];
-                a->alive = 1;
-                a->cell = sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                      (int)floorf(p->y / SIM_CELL));
-            }
+            apple_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
+                                    (int)floorf(p->y / SIM_CELL)));
             break;
         case LONGO_OBJ_SKULL:
-            if (w->skull_count < SIM_MAX_ITEMS) {
-                SimItem *s = &w->skulls[w->skull_count++];
-                s->alive = 1;
-                s->cell = sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                      (int)floorf(p->y / SIM_CELL));
-            }
+            skull_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
+                                    (int)floorf(p->y / SIM_CELL)));
             break;
         case LONGO_OBJ_BUTTON:
             if (w->button_count < SIM_MAX_BUTTONS) {
@@ -383,9 +374,8 @@ static void load_room(SimWorld *w, int room_index)
              * 64x64 sprHouse with origin (32, 64) */
             float gx = p->x - 32;
             float gy = p->y - 64;
-            w->goal.alive = 1;
-            w->goal.cell = sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                       (int)floorf((p->y - 32) / SIM_CELL));
+            house_place_goal(sim_cell_of((int)floorf(p->x / SIM_CELL),
+                                         (int)floorf((p->y - 32) / SIM_CELL)));
             mark_solid_footprint(w, gx, gy, 64, 64);
             break;
         }
@@ -396,19 +386,25 @@ static void load_room(SimWorld *w, int room_index)
             float gy = p->y + 16;
             float wx = p->x - 8;
             float wy = p->y + 16;
-            w->goal.alive = 1;
-            w->goal.cell = sim_cell_of((int)floorf(gx / SIM_CELL),
-                                       (int)floorf((gy - 32) / SIM_CELL));
+            house_place_goal(sim_cell_of((int)floorf(gx / SIM_CELL),
+                                         (int)floorf((gy - 32) / SIM_CELL)));
             mark_solid_footprint(w, gx - 32, gy - 64, 64, 64);
-            compute_zone(w, w->win.zone, &w->win.zone_count, wx, wy, 32, 32);
-            w->win.alive = 1;
+            {
+                uint16_t zone[HOUSE_WIN_ZONE_MAX];
+                int count;
+                compute_zone(w, zone, &count, wx, wy, 32, 32);
+                house_place_win_zone(zone, count);
+            }
             break;
         }
-        case LONGO_OBJ_WIN:
-            compute_zone(w, w->win.zone, &w->win.zone_count, p->x, p->y,
-                         16 * p->xscale, 16 * p->yscale);
-            w->win.alive = 1;
+        case LONGO_OBJ_WIN: {
+            uint16_t zone[HOUSE_WIN_ZONE_MAX];
+            int count;
+            compute_zone(w, zone, &count, p->x, p->y, 16 * p->xscale,
+                         16 * p->yscale);
+            house_place_win_zone(zone, count);
             break;
+        }
         case LONGO_OBJ_TITLE:
             title = 1;
             events_sound(SND_PLACEHOLDER, 1);
@@ -429,10 +425,9 @@ static void load_room(SimWorld *w, int room_index)
     if (have_dog) spawn_dog(w, dog_x, dog_y);
     if (title) arrange_title_dog(w);
     if (have_tutorial) setup_dialogue(w, room_index, tutorial_x, tutorial_y);
-    /* oGoalUp create defaults remain to 1; the first update recomputes it
-     * to dog.length - 2.  Initialising it here prevents the win from
-     * arming on the load tick itself. */
-    w->goal.remain = w->dog.alive ? w->dog.length - 2 : 1;
+    /* oGoalUp create defaults remain to 1; the first house_tick recomputes
+     * it to dog.length - 2.  Initialising here prevents the win from
+     * arming on the load tick itself (house_reset pre-seeds it). */
 }
 
 /* ------------------------------------------------------------------ */
@@ -503,14 +498,7 @@ static void update_doors(SimWorld *w)
 
 static void update_goal(SimWorld *w)
 {
-    SimGoal *goal = &w->goal;
-    if (!goal->alive) return;
-    if (w->dog.alive) goal->remain = w->dog.length - 2;
-    if (goal->remain > 0) return;
-    if (!goal->win_sound_played) {
-        events_sound(SND_WIN, 0);
-        goal->win_sound_played = 1;
-    }
+    house_tick(w->dog.alive ? w->dog.length : -1);
 }
 
 /* ------------------------------------------------------------------ */

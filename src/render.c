@@ -21,6 +21,8 @@
 #include "sprites.h"
 
 #include "objects/box.h"
+#include "objects/house.h"
+#include "objects/items.h"
 #include "objects/hole.h"
 #include "core/events.h"
 
@@ -745,18 +747,18 @@ static void build_shadow_surface(LongoRender *render, const SimWorld *world,
                            flower_frame(pres), pres->dog_x, pres->dog_y + 5.0f,
                            1.0f, 1.0f, 0.0f, black, 1.0f);
     }
-    for (int i = 0; i < world->apple_count; i++) {
-        if (!world->apples[i].alive) continue;
+    for (int i = 0; i < apple_count(); i++) {
+        if (!apple_alive(i)) continue;
         draw_sprite_origin(render, LONGO_SPR_APPLE, frame_of(pres->apple_clock),
-                           (float)(sim_cell_x(world->apples[i].cell) * SIM_CELL),
-                           (float)(sim_cell_y(world->apples[i].cell) * SIM_CELL + 7.0f),
+                           (float)(sim_cell_x(apple_cell(i)) * SIM_CELL),
+                           (float)(sim_cell_y(apple_cell(i)) * SIM_CELL + 7.0f),
                            1.0f, 0.6f, 0.0f, black, 1.0f);
     }
-    for (int i = 0; i < world->skull_count; i++) {
-        if (!world->skulls[i].alive) continue;
+    for (int i = 0; i < skull_count(); i++) {
+        if (!skull_alive(i)) continue;
         draw_sprite_origin(render, LONGO_SPR_SKULL, frame_of(pres->pear_clock),
-                           (float)(sim_cell_x(world->skulls[i].cell) * SIM_CELL),
-                           (float)(sim_cell_y(world->skulls[i].cell) * SIM_CELL + 7.0f),
+                           (float)(sim_cell_x(skull_cell(i)) * SIM_CELL),
+                           (float)(sim_cell_y(skull_cell(i)) * SIM_CELL + 7.0f),
                            1.0f, 0.6f, 0.0f, black, 1.0f);
     }
     for (int i = 0; i < PRES_MAX_FLIES; i++) {
@@ -766,10 +768,10 @@ static void build_shadow_surface(LongoRender *render, const SimWorld *world,
                            fly->x, fly->y + 16.0f, 1.0f, 0.6f, 0.0f, black,
                            1.0f);
     }
-    if (world->goal.alive) {
+    if (house_alive()) {
         /* the goal instance sits at the cell column centre, one cell down */
-        float gx = (float)(sim_cell_x(world->goal.cell) * SIM_CELL + 8);
-        float gy = (float)(sim_cell_y(world->goal.cell) * SIM_CELL + 16);
+        float gx = (float)(sim_cell_x(house_goal_cell()) * SIM_CELL + 8);
+        float gy = (float)(sim_cell_y(house_goal_cell()) * SIM_CELL + 16);
         draw_sprite_origin(render, LONGO_SPR_HOUSE, flower_frame(pres),
                            gx, gy + 4.0f, 1.0f, 0.5f, 0.0f, black, 1.0f);
     }
@@ -835,24 +837,24 @@ static void draw_smoke_puff(LongoRender *render, const PresSmoke *smoke)
 static void draw_goal(LongoRender *render, const SimWorld *world,
                       const Pres *pres)
 {
-    const SimGoal *goal = &world->goal;
     const LongoBitmapFont *font = font_by_asset(render, 2);
+    int remain = house_remain();
     /* oGoal instance position: cell column centre, one cell below the top */
-    float gx = (float)(sim_cell_x(goal->cell) * SIM_CELL + 8);
-    float gy = (float)(sim_cell_y(goal->cell) * SIM_CELL + 16);
-    int house_frame = goal->remain <= 0 ? 1 : 0;
+    float gx = (float)(sim_cell_x(house_goal_cell()) * SIM_CELL + 8);
+    float gy = (float)(sim_cell_y(house_goal_cell()) * SIM_CELL + 16);
+    int house_frame = remain <= 0 ? 1 : 0;
 
     draw_sprite_part_ext(render, LONGO_SPR_HOUSE, house_frame, 0, 0, 64, 44,
                          gx - (32.0f * pres->goal_scale_x),
                          gy - (64.0f * pres->goal_scale_y),
                          pres->goal_scale_x, pres->goal_scale_y, WHITE, 1.0f);
-    if (goal->remain > 0) {
+    if (remain > 0) {
         char text[16];
         float wave = wave_calc(-pres->goal_count2 / 50.0f,
                                pres->goal_count2 / 50.0f, 0.35f, 0,
                                pres->time_ms);
         float y = (gy + 1.0f) - 32.0f + wave;
-        snprintf(text, sizeof(text), "%d", goal->remain);
+        snprintf(text, sizeof(text), "%d", remain);
         if (font == NULL || !font->loaded) return;
         draw_text_centered(font, text, gx + 1.0f,
                            y - font->line_height * 0.5f, 1.0f,
@@ -1174,26 +1176,22 @@ static void draw_item(LongoRender *render, const SimWorld *world,
                                1.0f, 0.0f, WHITE, 1.0f);
         break;
     }
-    case SLOT_APPLE: {
-        const SimItem *a = &world->apples[item->index];
-        if (a->alive)
+    case SLOT_APPLE:
+        if (apple_alive(item->index))
             draw_sprite_origin(render, LONGO_SPR_APPLE,
                                frame_of(pres->apple_clock),
-                               (float)(sim_cell_x(a->cell) * SIM_CELL),
-                               (float)(sim_cell_y(a->cell) * SIM_CELL), 1.0f,
-                               1.0f, 0.0f, WHITE, 1.0f);
+                               (float)(sim_cell_x(apple_cell(item->index)) * SIM_CELL),
+                               (float)(sim_cell_y(apple_cell(item->index)) * SIM_CELL),
+                               1.0f, 1.0f, 0.0f, WHITE, 1.0f);
         break;
-    }
-    case SLOT_SKULL: {
-        const SimItem *s = &world->skulls[item->index];
-        if (s->alive)
+    case SLOT_SKULL:
+        if (skull_alive(item->index))
             draw_sprite_origin(render, LONGO_SPR_SKULL,
                                frame_of(pres->pear_clock),
-                               (float)(sim_cell_x(s->cell) * SIM_CELL),
-                               (float)(sim_cell_y(s->cell) * SIM_CELL), 1.0f,
-                               1.0f, 0.0f, WHITE, 1.0f);
+                               (float)(sim_cell_x(skull_cell(item->index)) * SIM_CELL),
+                               (float)(sim_cell_y(skull_cell(item->index)) * SIM_CELL),
+                               1.0f, 1.0f, 0.0f, WHITE, 1.0f);
         break;
-    }
     case SLOT_HOLE: {
         int i = item->index;
         draw_sprite_origin(render, LONGO_SPR_HOLE, hole_is_full(i) ? 1 : 0,
@@ -1238,7 +1236,7 @@ static void draw_item(LongoRender *render, const SimWorld *world,
         break;
     }
     case SLOT_GOAL:
-        if (world->goal.alive) draw_goal(render, world, pres);
+        if (house_alive()) draw_goal(render, world, pres);
         break;
     case SLOT_BARK: {
         const PresBark *b = &pres->barks[item->index];
@@ -1283,7 +1281,7 @@ static void draw_item(LongoRender *render, const SimWorld *world,
 void longo_render_frame(LongoRender *render, const SimWorld *world,
                         const Pres *pres)
 {
-    DrawItem items[20 + BOX_MAX + HOLE_MAX + SIM_MAX_ITEMS * 2 +
+    DrawItem items[20 + BOX_MAX + HOLE_MAX + ITEMS_MAX * 2 +
                    SIM_MAX_BUTTONS + SIM_MAX_DOORS + PRES_MAX_FLOWERS +
                    PRES_MAX_FLIES + PRES_MAX_SMOKE + PRES_MAX_POPUPS +
                    PRES_MAX_BARKS + PRES_MAX_SINKS];
@@ -1319,11 +1317,11 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
     }
     for (int i = 0; i < pres->sink_count; i++)
         items[item_count++] = (DrawItem){ -100, 40 + i, SLOT_SINK, i };
-    for (int i = 0; i < world->apple_count; i++)
-        if (world->apples[i].alive)
+    for (int i = 0; i < apple_count(); i++)
+        if (apple_alive(i))
             items[item_count++] = (DrawItem){ 100, 50 + i, SLOT_APPLE, i };
-    for (int i = 0; i < world->skull_count; i++)
-        if (world->skulls[i].alive)
+    for (int i = 0; i < skull_count(); i++)
+        if (skull_alive(i))
             items[item_count++] = (DrawItem){ 100, 90 + i, SLOT_SKULL, i };
     for (int i = 0; i < hole_count(); i++)
         items[item_count++] = (DrawItem){ 200, 130 + i, SLOT_HOLE, i };
@@ -1338,7 +1336,7 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
     for (int i = 0; i < PRES_MAX_FLIES; i++)
         if (pres->flies[i].alive)
             items[item_count++] = (DrawItem){ -500, 200 + i, SLOT_FLY, i };
-    if (world->goal.alive)
+    if (house_alive())
         items[item_count++] = (DrawItem){ -180, 210, SLOT_GOAL, 0 };
     for (int i = 0; i < pres->bark_count; i++)
         if (pres->barks[i].alive)

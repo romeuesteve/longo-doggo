@@ -36,7 +36,6 @@
 #define SIM_DIALOGUE_SHRINK_TICKS 34
 
 #define SIM_MAX_CHAIN 64 /* dog body parts (original LONGO_MAX_DOG_INS) */
-#define SIM_MAX_ITEMS 32
 #define SIM_MAX_BUTTONS 16
 #define SIM_MAX_DOORS 8
 #define SIM_MAX_ZONE 16  /* cells covered by one placed object bbox */
@@ -72,11 +71,6 @@ typedef struct SimDog {
     int detached_cell; /* cell the tail vacated on the last step */
 } SimDog;
 
-typedef struct SimItem {
-    int alive;
-    uint16_t cell;
-} SimItem;
-
 /* Buttons cover one or two cells: the original places them straddling a
  * cell boundary, and anything overlapping the button rect pressed it.
  * zone = cells a 16x16 body (head/parts/holes/doors) presses;
@@ -97,21 +91,6 @@ typedef struct SimDoor {
     int open_timer;  /* the open animation ticks, then the door poofs */
     uint16_t cell;
 } SimDoor;
-
-typedef struct SimGoal {
-    int alive;
-    uint16_t cell;
-    int remain;        /* dog.length - 2, the number shown on the house */
-    int win_sound_played;
-} SimGoal;
-
-/* The win tile is placed with xscale 2 (a 32x32 bbox); the zone holds the
- * cells whose head-sized bbox overlapped it in the original. */
-typedef struct SimWin {
-    int alive;
-    uint16_t zone[SIM_MAX_ZONE];
-    int zone_count;
-} SimWin;
 
 /* oTutorial dialogue state machine (texts ported verbatim). */
 typedef struct SimDbox {
@@ -150,17 +129,11 @@ typedef struct SimWorld {
     uint8_t solid[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
 
     SimDog dog;
-    SimItem apples[SIM_MAX_ITEMS];
-    int apple_count;
-    SimItem skulls[SIM_MAX_ITEMS];
-    int skull_count;
     SimButton buttons[SIM_MAX_BUTTONS];
     int button_count;
     int buttons_pressed;
     SimDoor doors[SIM_MAX_DOORS];
     int door_count;
-    SimGoal goal;
-    SimWin win;
 
     int has_title;
     SimDialogue dialogue;

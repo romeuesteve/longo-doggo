@@ -22,7 +22,7 @@ endif()
 if(LONGO_DOGGO_BUILD_TESTS AND LONGO_DOGGO_PLATFORM STREQUAL "native")
     enable_testing()
     add_executable(longo_game_smoke tests/game_smoke.c
-        src/core/world.c src/core/dog_rules.c src/core/solid.c src/core/events.c src/objects/hole.c src/objects/box.c src/sprites.c src/level_data.c)
+        src/core/world.c src/core/dog_rules.c src/core/solid.c src/core/events.c src/objects/hole.c src/objects/box.c src/objects/items.c src/objects/house.c src/sprites.c src/level_data.c)
     target_compile_features(longo_game_smoke PRIVATE c_std_99)
     target_include_directories(longo_game_smoke PRIVATE src src/core)
     add_test(NAME longo_game_smoke COMMAND longo_game_smoke)
@@ -67,6 +67,8 @@ set(LONGO_DOGGO_SOURCES
     src/core/events.c
     src/objects/hole.c
     src/objects/box.c
+    src/objects/items.c
+    src/objects/house.c
     src/core/view.c
     src/render.c
     src/sprites.c
