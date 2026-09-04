@@ -4,8 +4,8 @@
 #include <stdbool.h>
 
 #include "raylib.h"
-#include "sim/sim.h"
-#include "pres.h"
+#include "core/world.h"
+#include "core/view.h"
 
 #define LONGO_LOGICAL_WIDTH 304
 #define LONGO_LOGICAL_HEIGHT 208

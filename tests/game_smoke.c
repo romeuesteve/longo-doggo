@@ -5,7 +5,7 @@
  * chain follow, apple/skull length changes, box push/hole fill,
  * simultaneous button/door logic, the win transition order, and retry.
  */
-#include "sim.h"
+#include "core/world.h"
 
 #include <assert.h>
 #include <stdio.h>

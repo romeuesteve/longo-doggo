@@ -4,7 +4,7 @@
  * sim_dog.c.  Every rule here is a port of the recovered GML behaviour,
  * translated from bbox probes to cell lookups (see docs/architecture.md).
  */
-#include "sim.h"
+#include "world.h"
 
 #include <math.h>
 #include <string.h>

@@ -8,9 +8,9 @@
  * key repeat.  After each tick it advances the presentation and plays
  * the sounds the simulation queued.
  */
-#include "pres.h"
+#include "core/view.h"
+#include "core/world.h"
 #include "render.h"
-#include "sim/sim.h"
 
 #include <stdbool.h>
 #include <string.h>

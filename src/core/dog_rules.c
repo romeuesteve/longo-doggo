@@ -14,7 +14,7 @@
  *     tick
  *   - oApple/oSkull/oWin collision events: pickups on the head's new cell
  */
-#include "sim.h"
+#include "world.h"
 
 #include <math.h>
 

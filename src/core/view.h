@@ -13,7 +13,7 @@
 #ifndef LONGO_PRES_H
 #define LONGO_PRES_H
 
-#include "sim/sim.h"
+#include "world.h"
 
 #define PRES_MAX_FLOWERS 64
 #define PRES_MAX_FLIES 8
