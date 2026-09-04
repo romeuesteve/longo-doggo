@@ -56,4 +56,7 @@ int longo_sprite_origin_x(int sprite);
 int longo_sprite_origin_y(int sprite);
 int longo_sprite_frames(int sprite);
 
+/* The recovered Wave() global script (title/goal/dialogue wobble). */
+float longo_wave(float a, float b, float period, float phase, double time_ms);
+
 #endif /* LONGO_SPRITES_H */

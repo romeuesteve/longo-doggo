@@ -21,14 +21,11 @@ endif()
 
 if(LONGO_DOGGO_BUILD_TESTS AND LONGO_DOGGO_PLATFORM STREQUAL "native")
     enable_testing()
-    add_executable(longo_game_smoke tests/game_smoke.c src/game.c src/level_data.c)
+    add_executable(longo_game_smoke tests/game_smoke.c
+        src/sim/sim.c src/sim/sim_dog.c src/sprites.c src/level_data.c)
     target_compile_features(longo_game_smoke PRIVATE c_std_99)
-    target_include_directories(longo_game_smoke PRIVATE src)
+    target_include_directories(longo_game_smoke PRIVATE src src/sim)
     add_test(NAME longo_game_smoke COMMAND longo_game_smoke)
-
-    add_executable(longo_box_slide tests/box_slide_test.c src/game.c src/level_data.c)
-    target_compile_features(longo_box_slide PRIVATE c_std_99)
-    target_include_directories(longo_box_slide PRIVATE src)
 endif()
 
 if(NOT LONGO_DOGGO_PLATFORM STREQUAL "native" AND NOT LONGO_DOGGO_PLATFORM STREQUAL "web")
@@ -64,8 +61,11 @@ FetchContent_MakeAvailable(raylib)
 
 set(LONGO_DOGGO_SOURCES
     src/main.c
-    src/game.c
+    src/sim/sim.c
+    src/sim/sim_dog.c
+    src/pres.c
     src/render.c
+    src/sprites.c
     src/level_data.c
     src/room_tiles.c
 )

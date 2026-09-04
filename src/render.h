@@ -4,7 +4,8 @@
 #include <stdbool.h>
 
 #include "raylib.h"
-#include "game.h"
+#include "sim/sim.h"
+#include "pres.h"
 
 #define LONGO_LOGICAL_WIDTH 304
 #define LONGO_LOGICAL_HEIGHT 208
@@ -76,10 +77,12 @@ typedef struct LongoRender {
 bool longo_render_init(LongoRender *render, const char *asset_root);
 void longo_render_shutdown(LongoRender *render);
 
-/* Full GameMaker draw phase: application surface, GUI pass and present. */
-void longo_render_frame(LongoRender *render, const LongoWorld *world);
+/* Full GameMaker draw phase: application surface, GUI pass and present.
+ * Reads the simulation state plus the presentation's eased visuals. */
+void longo_render_frame(LongoRender *render, const SimWorld *world,
+                        const Pres *pres);
 
 /* Audio dispatch for the sounds the simulation queued this tick. */
-void longo_render_dispatch_sounds(LongoRender *render, LongoWorld *world);
+void longo_render_dispatch_sounds(LongoRender *render, SimWorld *world);
 
 #endif /* LONGO_RENDER_H */

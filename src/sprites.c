@@ -1,6 +1,18 @@
 #include "sprites.h"
 
+#include <math.h>
 #include <stddef.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979f
+#endif
+
+float longo_wave(float a, float b, float period, float phase, double time_ms)
+{
+    float a4 = (b - a) * 0.5f;
+    float t = (float)(time_ms * 0.001);
+    return a + a4 + sinf(((t + period * phase) / period) * (2.0f * (float)M_PI)) * a4;
+}
 
 static const LongoSpriteInfo SPRITES[] = {
     [LONGO_SPR_BLOCK] = { 16, 16, 0, 0, 2, 0 },
