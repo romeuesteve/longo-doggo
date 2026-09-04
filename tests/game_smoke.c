@@ -1,325 +1,338 @@
 /*
- * Headless smoke tests for the GameMaker-faithful simulation core.
- * Runs the recovered rooms with deterministic input and asserts the
- * recovered GML mechanics (movement cadence, length, push, holes,
- * buttons/doors, transitions, runtime room order).
+ * Headless smoke tests for the simulation core.
+ * Runs the recovered rooms with deterministic input and asserts the ported
+ * rules: runtime room order, dialogue gating, tile-based movement cadence,
+ * chain follow, apple/skull length changes, box push/hole fill,
+ * simultaneous button/door logic, the win transition order, and retry.
  */
-#include "game.h"
+#include "sim.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-static LongoWorld world;
+static SimWorld world;
 
-static void tick_with(const LongoInput *input)
-{
-    longo_tick(&world, input, 1000.0 / 60.0);
-}
+static void tick_with(const SimInput *input) { sim_tick(&world, input); }
 
 static void tick_idle(int n)
 {
-    LongoInput none;
+    SimInput none;
     memset(&none, 0, sizeof(none));
-    for (int i = 0; i < n; i++) longo_tick(&world, &none, 1000.0 / 60.0);
+    for (int i = 0; i < n; i++) sim_tick(&world, &none);
 }
 
-static LongoInst *dog(void)
+static SimDog *dog(void) { return &world.dog; }
+
+static SimBox *box_at_cell(int cx, int cy)
 {
-    return longo_find_first(&world, LONGO_OBJ_DOG);
+    return sim_box_at(&world, sim_cell_of(cx, cy));
 }
 
-static void press(unsigned char *flag)
+static SimHole *hole_at_cell(int cx, int cy)
 {
-    *flag = 1;
+    return sim_hole_at(&world, sim_cell_of(cx, cy));
 }
 
 /* ---------------------------------------------------------------- */
 
 static void test_title_flow_and_room_order(void)
 {
-    LongoInput input;
+    SimInput input;
     memset(&input, 0, sizeof(input));
 
-    longo_init(&world, 42u);
-    assert(world.room_index == 0);
+    sim_init(&world, 42u);
+    assert(world.room_index == SIM_ROOM_TITLE);
     assert(strcmp(world.room->name, "rm_title_screen") == 0);
-    assert(longo_instance_exists(&world, LONGO_OBJ_TITLE));
-    /* oTransition is persistent and placed in the title room */
-    assert(longo_instance_exists(&world, LONGO_OBJ_TRANSITION));
-    assert(dog() != NULL);
+    assert(world.has_title);
+    assert(world.trans.active); /* persistent from the title room */
+    assert(dog()->alive);
     assert(dog()->length == 5);
 
-    press(&input.vk_anykey);
+    input.pressed_any = 1;
     tick_with(&input);
     tick_idle(200);
-    assert(world.room_index == 1);
+    assert(world.room_index == SIM_ROOM_TUTORIAL);
     assert(strcmp(world.room->name, "rm_tutorial") == 0);
     /* "LEVEL 1" transition ran with room_num 1 */
-    assert(longo_find_first(&world, LONGO_OBJ_TRANSITION)->room_num == 1);
+    assert(world.trans.room_num == 1);
 }
 
 static void test_tutorial_dialogue_gates_play(void)
 {
-    LongoInput input;
+    SimInput input;
     memset(&input, 0, sizeof(input));
 
-    assert(dog()->play == 0); /* oTutorial paused the dog */
+    assert(dog()->play == 0); /* the tutorial paused the dog */
     for (int i = 0; i < 6; i++) {
-        press(&input.key_space);
+        input.pressed_space = 1;
         tick_with(&input);
-        input.key_space = 0;
+        input.pressed_space = 0;
         tick_idle(1);
     }
-    /* i == num: next press releases the dog */
+    /* index == last: the next press releases the dog */
     assert(dog()->play == 0);
-    press(&input.key_space);
+    input.pressed_space = 1;
     tick_with(&input);
-    tick_idle(40); /* box shrink animation, then destroyed */
+    tick_idle(SIM_DIALOGUE_SHRINK_TICKS + 10); /* box shrink, then gone */
     assert(dog()->play == 1);
-    assert(!longo_instance_exists(&world, LONGO_OBJ_TUTORIAL));
+    assert(!world.dialogue.active);
 }
 
-static void test_movement_and_cooldown(void)
+static void test_movement_and_chain(void)
 {
-    LongoInput input;
+    SimInput input;
     memset(&input, 0, sizeof(input));
-    float start_x = dog()->x;
+    int start_x = dog()->cx;
+    int start_y = dog()->cy;
+    uint16_t head0 = sim_cell_of(start_x, start_y);
 
-    /* oDog Step runs only once per tick like GameMaker */
-    press(&input.vk_right);
+    /* a fresh press steps instantly and snaps the head cell */
+    input.held_right = 1;
     tick_with(&input);
-    assert(dog()->x == start_x + 16.0f);
-    assert(dog()->sprite_index == LONGO_SPR_DOGRIGHT);
-    assert(dog()->key_cooldown == 0);
+    assert(dog()->cx == start_x + 1);
+    assert(dog()->dir == 90);
 
-    /* held key repeats but the 2-tick alarm gates the second move */
-    press(&input.vk_right);
+    /* the held-repeat timer gates the next step (one step per 2 ticks) */
     tick_with(&input);
-    assert(dog()->x == start_x + 16.0f); /* key_cooldown still 0 */
-    tick_idle(1);                        /* alarm[1] fires: cooldown 1 */
-    press(&input.vk_right);
+    assert(dog()->cx == start_x + 1); /* move_timer still counting */
+    tick_idle(1);                     /* timer expires */
     tick_with(&input);
-    assert(dog()->x == start_x + 32.0f);
+    assert(dog()->cx == start_x + 2);
 
     /* the body follows into the head's previous cells */
-    assert(dog()->ins[0] >= 0);
-    LongoInst *part0 = longo_find_id(&world, dog()->ins[0]);
-    assert(part0 != NULL);
-    tick_idle(4); /* parts snap via follow->xprev */
-    part0 = longo_find_id(&world, dog()->ins[0]);
-    assert(part0->x == start_x + 16.0f);
-    assert(dog()->image_speed == 1.0f);
+    tick_idle(3);
+    assert(dog()->chain[0] == sim_cell_of(start_x + 1, start_y));
+    assert(dog()->chain[1] == head0);
+    assert(world.dog.play);
 }
 
 static void test_apple_and_skull_length(void)
 {
-    LongoInst *d = dog();
-    LongoInst *apple = NULL;
-    LongoInst *skull = NULL;
+    SimDog *d = dog();
+    SimInput input;
+    memset(&input, 0, sizeof(input));
 
-    /* teleport beside the tutorial apple at (192,144) (bbox cell centre) */
-    apple = NULL;
-    for (int i = 0; i < world.instance_count; i++) {
-        if (world.instances[i].alive &&
-            world.instances[i].object == LONGO_OBJ_APPLE &&
-            world.instances[i].x == 192.0f && world.instances[i].y == 144.0f)
-            apple = &world.instances[i];
+    /* move the head beside the tutorial apple and step into it */
+    SimItem *apple = NULL;
+    for (int i = 0; i < world.apple_count; i++) {
+        if (world.apples[i].alive) {
+            apple = &world.apples[i];
+            break;
+        }
     }
     assert(apple != NULL);
-    d->x = apple->x - 16.0f;
-    d->y = apple->y + 8.0f; /* cell centre of the row below? no: same row */
-    /* place exactly one cell to the left, same cell row (centres) */
-    d->x = apple->x - 16.0f;
-    d->y = apple->y + 8.0f;
-    apple->y = d->y - 8.0f; /* align apple cell to the dog row */
+    d->cx = sim_cell_x(apple->cell) - 1;
+    d->cy = sim_cell_y(apple->cell);
     int length_before = d->length;
 
-    LongoInput input;
-    memset(&input, 0, sizeof(input));
-    press(&input.vk_right);
+    input.held_right = 1;
     tick_with(&input);
     tick_idle(1);
     assert(dog()->length == length_before + 1);
     assert(apple->alive == 0);
+    /* the new tail segment sits on the cell the tail just left */
+    assert(dog()->chain[dog()->length - 1] == dog()->detached_cell);
 
-    /* skull at length 3 shortens; at length 2 it kills the dog */
-    for (int i = 0; i < world.instance_count; i++) {
-        if (world.instances[i].alive &&
-            world.instances[i].object == LONGO_OBJ_SKULL)
-            skull = &world.instances[i];
+    /* a skull at length 3 shortens; at length 2 it kills the dog */
+    SimItem *skull = NULL;
+    for (int i = 0; i < world.skull_count; i++) {
+        if (world.skulls[i].alive) {
+            skull = &world.skulls[i];
+            break;
+        }
     }
     assert(skull != NULL);
     d = dog();
     d->length = 3;
-    d->x = skull->x - 16.0f;
-    d->y = skull->y + 8.0f;
-    skull->y = d->y - 8.0f;
-    press(&input.vk_right);
+    d->cx = sim_cell_x(skull->cell) - 1;
+    d->cy = sim_cell_y(skull->cell);
+    input.held_right = 1;
     tick_with(&input);
     tick_idle(1);
-    assert(dog() != NULL);
+    assert(dog()->alive);
     assert(dog()->length == 2);
 
-    for (int i = 0; i < world.instance_count; i++) {
-        if (world.instances[i].alive &&
-            world.instances[i].object == LONGO_OBJ_SKULL)
-            skull = &world.instances[i];
+    for (int i = 0; i < world.skull_count; i++) {
+        if (world.skulls[i].alive) {
+            skull = &world.skulls[i];
+            break;
+        }
     }
     assert(skull != NULL);
     d = dog();
-    d->x = skull->x - 16.0f;
-    d->y = skull->y + 8.0f;
-    skull->y = d->y - 8.0f;
-    press(&input.vk_right);
+    d->cx = sim_cell_x(skull->cell) - 1;
+    d->cy = sim_cell_y(skull->cell);
+    input.held_right = 1;
     tick_with(&input);
     tick_idle(1);
-    /* eating a pear at length 2 destroys the dog (and the parts follow) */
-    assert(dog() == NULL);
+    /* eating a pear at length 2 destroys the dog (original behaviour) */
+    assert(dog()->alive == 0);
 }
 
-static void test_box_push_hole_button_door(void)
+static void test_walls_and_push_rules(void)
 {
-    /* rm_level1 (runtime index 6) exercises boxes, holes, buttons, doors */
-    longo_room_goto(&world, 6);
+    /* rm_level1 (runtime index SIM_ROOM_LEVEL1) exercises boxes, holes,
+     * buttons, doors */
+    sim_room_goto(&world, SIM_ROOM_LEVEL1);
     assert(strcmp(world.room->name, "rm_level1") == 0);
     tick_idle(2);
 
-#ifdef DEBUG_SPAWN
-    {
-        int counts[32] = { 0 };
-        for (size_t i = 0; i < (size_t)world.instance_count; i++) {
-            if (world.instances[i].alive)
-                counts[world.instances[i].object]++;
-        }
-        for (int o = 0; o < 28; o++) {
-            if (counts[o]) printf("obj %d alive: %d\n", o, counts[o]);
-        }
-        fflush(stdout);
-    }
-#endif
-    LongoInst *box = NULL;
-    LongoInst *hole = NULL;
-    for (int i = 0; i < world.instance_count; i++) {
-        LongoInst *inst = &world.instances[i];
-        if (!inst->alive) continue;
-        if (inst->object == LONGO_OBJ_BOX && box == NULL &&
-            inst->x == 96.0f && inst->y == 80.0f)
-            box = inst;
-        if (inst->object == LONGO_OBJ_HOLE && hole == NULL &&
-            inst->x == 208.0f && inst->y == 80.0f)
-            hole = inst;
-    }
+    SimBox *box = box_at_cell(6, 5);
+    SimHole *hole = hole_at_cell(13, 5);
     assert(box != NULL);
     assert(hole != NULL);
-    /* GML: boxes carry push=1; block is recomputed every Step and is 0
-     * while nothing jams the box against a blocker. */
-    assert(box->push == 1);
-    assert(box->block == 0);
-    assert(hole->block == 1 && hole->full == 0);
+    assert(hole->full == 0);
 
-    /* a box lerps into its logical cell when pushed */
-    box->xx = hole->x;
-    box->yy = hole->y;
-    tick_idle(30);
-    assert(hole->full == 1);
-    assert(hole->block == 0);
-    assert(box->alive == 0); /* destroyed by the oHole collision */
-
-    /* Buttons count: rm_level1 has four.  Press three with boxes (a box
-     * lerps onto the button cell) and the last one with the dog head. */
-    struct { float bx, by, ox, oy; } pushes[3] = {
-        { 224.0f, 144.0f, 224.0f, 128.0f },
-        { 240.0f, 144.0f, 240.0f, 128.0f },
-        { 192.0f, 128.0f, 208.0f, 160.0f },
-    };
-    for (int i = 0; i < 3; i++) {
-        LongoInst *b = NULL;
-        for (int j = 0; j < world.instance_count; j++) {
-            LongoInst *inst = &world.instances[j];
-            if (inst->alive && inst->object == LONGO_OBJ_BOX &&
-                inst->xx == pushes[i].ox && inst->yy == pushes[i].oy)
-                b = inst;
-        }
-        assert(b != NULL);
-        b->xx = pushes[i].bx;
-        b->yy = pushes[i].by;
-        tick_idle(30);
-    }
-    LongoInst *button4 = NULL;
-    for (int i = 0; i < world.instance_count; i++) {
-        LongoInst *inst = &world.instances[i];
-        if (inst->alive && inst->object == LONGO_OBJ_BUTTON &&
-            inst->x == 256.0f && inst->y == 64.0f)
-            button4 = inst;
-    }
-    assert(button4 != NULL);
+    /* a box pushed into the hole fills it and the box is destroyed */
+    box->cell = sim_cell_of(12, 5); /* one cell left of the hole */
     {
-        LongoInst *d = dog();
-        assert(d != NULL);
-        d->x = button4->x + 8.0f;
-        d->y = button4->y + 8.0f;
-        d->dir = 180;
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        SimDog *d = dog();
+        d->cx = 11;
+        d->cy = 5;
+        d->dir = 90;
+        input.held_right = 1;
+        tick_with(&input);
     }
-    tick_idle(3);
-    assert(button4->pressed == 1);
-    assert(world.g_buttons == longo_instance_number(&world, LONGO_OBJ_BUTTON));
+    assert(hole->full == 1);
+    assert(box->alive == 0);
+    assert(dog()->cx == 12); /* the dog took the box's old cell */
 
-    /* doors open once every button is pressed simultaneously */
-    tick_idle(1);
-    assert(longo_find_first(&world, LONGO_OBJ_DOOR)->open == 1);
+    /* walls block: stepping into a static block strains in place */
+    SimInput input;
+    memset(&input, 0, sizeof(input));
+    {
+        int cx = -1, cy = -1;
+        for (int y = 0; y < world.cells_h && cx < 0; y++) {
+            for (int x = 1; x < world.cells_w && cx < 0; x++) {
+                if (world.solid[sim_cell_of(x, y)] &&
+                    !world.solid[sim_cell_of(x - 1, y)]) {
+                    cx = x - 1;
+                    cy = y;
+                }
+            }
+        }
+        assert(cx >= 0);
+        SimDog *d = dog();
+        d->alive = 1;
+        d->cx = cx;
+        d->cy = cy;
+        d->length = 5;
+        d->move_timer = 0;
+        for (int i = 0; i < d->length; i++)
+            d->chain[i] = sim_cell_of(cx, cy + 1 + i);
+        input.held_right = 1;
+        int sx = cx, sy = cy;
+        tick_with(&input);
+        tick_idle(4);
+        assert(world.dog.strain);
+        assert(world.dog.cx == sx && world.dog.cy == sy);
+    }
 }
 
-static void test_win_advances_to_next_runtime_room(void)
+static void test_buttons_door_win_retry(void)
 {
-    /* rm_level1 (index 6) is followed by rm_level3 (index 7) */
-    LongoInst *d = dog();
-    LongoInst *win = NULL;
-    LongoInst *goalup = longo_find_first(&world, LONGO_OBJ_GOALUP);
-    assert(goalup != NULL);
-    assert(goalup->remain == 3);
-
-    for (int i = 0; i < world.instance_count; i++) {
-        if (world.instances[i].alive &&
-            world.instances[i].object == LONGO_OBJ_WIN)
-            win = &world.instances[i];
-    }
-    assert(win != NULL);
-    d->length = 2;
-    goalup->remain = 0; /* the oGoalUp draw event keeps this updated */
-    d->x = win->x + 8.0f;
-    d->y = win->y + 8.0f;
+    /* rm_level1 has four buttons; doors open once all are pressed at once */
+    sim_room_goto(&world, SIM_ROOM_LEVEL1);
     tick_idle(2);
-    assert(longo_find_first(&world, LONGO_OBJ_TRANSITION)->next_lvl == 1);
+    assert(world.doors[0].open == 0);
 
+    /* park a distinct box on every button zone but the last one */
+    for (int i = 0; i < world.button_count - 1; i++) {
+        SimButton *b = &world.buttons[i];
+        uint16_t cell = b->zone[b->zone_count / 2];
+        SimBox *existing = sim_box_at(&world, cell);
+        if (existing && existing != &world.boxes[i])
+            existing->cell = sim_cell_of(0, 0);
+        assert(i < world.box_count);
+        world.boxes[i].alive = 1;
+        world.boxes[i].cell = cell;
+        tick_idle(1);
+    }
+    tick_idle(1);
+    {
+        int pressed_count = 0;
+        for (int i = 0; i < world.button_count - 1; i++)
+            if (world.buttons[i].pressed) pressed_count++;
+        assert(pressed_count == world.button_count - 1);
+    }
+    /* doors stay closed until every button is pressed simultaneously */
+    assert(world.buttons_pressed == world.button_count - 1);
+    assert(world.doors[0].open == 0);
+
+    /* the last button: a box pressed through its zone opens the doors */
+    {
+        SimButton *b = &world.buttons[world.button_count - 1];
+        uint16_t cell = b->box_zone[b->box_zone_count - 1];
+        world.boxes[world.button_count - 1].alive = 1;
+        world.boxes[world.button_count - 1].cell = cell;
+    }
+    tick_idle(1);
+    assert(world.buttons_pressed == world.button_count);
+    assert(world.doors[0].open == 1);
+
+    /* park the dog off the zones (length 0 so no part overlaps anything):
+     * unpressing buttons closes nothing, but drops the pressed count */
+    for (int j = 0; j < world.box_count; j++) {
+        if (world.boxes[j].alive) world.boxes[j].cell = sim_cell_of(0, 0);
+    }
+    world.dog.alive = 0;
+    tick_idle(1);
+    assert(world.buttons_pressed == 0);
+
+    /* the head's cell counts as pressing (the original stupidblock) */
+    SimButton *last = &world.buttons[0];
+    world.dog.alive = 1;
+    world.dog.length = 0;
+    world.dog.cx = sim_cell_x(last->zone[0]);
+    world.dog.cy = sim_cell_y(last->zone[0]);
+    tick_idle(1);
+    assert(last->pressed == 1);
+    assert(world.buttons_pressed == 1);
+
+    /* win: length 2 makes the house ready; stepping into the win zone
+     * advances to the next runtime room */
+    SimGoal *goal = &world.goal;
+    world.dog.length = 2;
+    tick_idle(1);
+    assert(goal->remain == 0);
+    assert(world.win.alive);
+    world.dog.cx = sim_cell_x(world.win.zone[0]);
+    world.dog.cy = sim_cell_y(world.win.zone[0]);
+    tick_idle(2);
+    assert(!world.win.alive);
+    assert(world.trans.next_lvl == 1);
     tick_idle(200);
-    assert(world.room_index == 7);
+    assert(world.room_index == SIM_ROOM_LEVEL3);
     assert(strcmp(world.room->name, "rm_level3") == 0);
-    /* room_num counts wins, not room indices: it was 1 before this win */
-    assert(longo_find_first(&world, LONGO_OBJ_TRANSITION)->room_num == 2);
+    /* room_num counts wins, not room indices */
+    assert(world.trans.room_num == 2);
 }
 
 static void test_retry_reloads_room(void)
 {
     int room_before = world.room_index;
-    LongoInput input;
+    SimInput input;
     memset(&input, 0, sizeof(input));
-    press(&input.key_r);
+    input.pressed_r = 1;
     tick_with(&input);
     tick_idle(200);
     assert(world.room_index == room_before);
-    assert(dog() != NULL);
+    assert(dog()->alive);
     assert(dog()->length == 5);
+    assert(dog()->play == 1); /* the level3 room has no dialogue */
 }
 
 int main(void)
 {
     test_title_flow_and_room_order();
     test_tutorial_dialogue_gates_play();
-    test_movement_and_cooldown();
+    test_movement_and_chain();
     test_apple_and_skull_length();
-    test_box_push_hole_button_door();
-    test_win_advances_to_next_runtime_room();
+    test_walls_and_push_rules();
+    test_buttons_door_win_retry();
     test_retry_reloads_room();
     printf("longo_game_smoke: all tests passed\n");
     return 0;

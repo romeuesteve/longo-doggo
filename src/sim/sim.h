@@ -1,0 +1,274 @@
+/*
+ * Longo Doggo simulation core.
+ *
+ * Pure C, no rendering dependency, integer cell state.  Every gameplay
+ * position is a 16px grid cell; movement snaps instantly and the
+ * presentation layer (src/pres.c) eases visual positions toward the
+ * snapped cells.  All rules are ports of the recovered GML behaviours,
+ * translated from bbox probes to cell lookups.
+ *
+ * One sim_tick() is one 60 Hz frame, in the original event order:
+ * dog step -> pickups -> buttons/doors/goal -> title/dialogue ->
+ * transition (which may reload the room mid-tick).
+ */
+#ifndef LONGO_SIM_H
+#define LONGO_SIM_H
+
+#include <stdint.h>
+
+#include "../level_data.h"
+#include "../sprites.h"
+
+#define SIM_CELL 16
+#define SIM_MAX_CELLS_W 24
+#define SIM_MAX_CELLS_H 16
+#define SIM_CELL_INDEX(cx, cy) ((uint16_t)((cy)*SIM_MAX_CELLS_W + (cx)))
+
+/* Fixed movement repeat: the original derived its held-key cadence from a
+ * 2-tick alarm plus the OS key-repeat rate, which lands on one cell every
+ * 2 ticks (30 cells/s) once a key is held.  The sim now owns the cadence
+ * explicitly; a fresh press still steps immediately. */
+#define SIM_STEP_INTERVAL 2
+
+/* Dialogue box shrink after the final press (lerp 0.15 below 0.65 scale). */
+#define SIM_DIALOGUE_SHRINK_TICKS 34
+
+#define SIM_MAX_CHAIN 64 /* dog body parts (original LONGO_MAX_DOG_INS) */
+#define SIM_MAX_BOXES 32
+#define SIM_MAX_HOLES 32
+#define SIM_MAX_ITEMS 32
+#define SIM_MAX_BUTTONS 16
+#define SIM_MAX_DOORS 8
+#define SIM_MAX_ZONE 16  /* cells covered by one placed object bbox */
+#define SIM_MAX_SOUNDS 64
+#define SIM_MAX_FX 64
+
+/* Sound asset indices recovered from data.win. */
+typedef enum LongoSound {
+    LONGO_SND_PLACEHOLDER = 0,
+    LONGO_SND_POOF = 1,
+    LONGO_SND_WRONG = 2,
+    LONGO_SND_PUSHED = 3,
+    LONGO_SND_WIN = 4,
+    LONGO_SND_BUTTON = 5,
+    LONGO_SND_BARK = 6
+} LongoSound;
+
+typedef struct SimInput {
+    /* held directions (arrow keys and WASD merged by the front-end) */
+    unsigned char held_right, held_left, held_up, held_down;
+    /* pressed edges, one tick wide */
+    unsigned char pressed_space, pressed_enter, pressed_e, pressed_r;
+    unsigned char pressed_any;
+} SimInput;
+
+/* Visual-effect requests for the presentation layer.  Positions are
+ * logical pixels (cell-derived); the presentation owns the particles. */
+typedef enum SimFxKind {
+    SIM_FX_NONE = 0,
+    SIM_FX_SMOKE_BURST, /* count puffs scattered around (x, y) */
+    SIM_FX_BARK,        /* bark wedge at (x, y) rotated image_angle */
+    SIM_FX_ONE,         /* "1" popup at (x, y); variant 1 = shrinking popup */
+    SIM_FX_BOX_SINK     /* box visual easing from (x, y) into a filled hole
+                         * at (tx, ty), then vanishing */
+} SimFxKind;
+
+typedef struct SimFx {
+    SimFxKind kind;
+    float x, y;
+    float tx, ty; /* box sink target */
+    float angle;  /* bark */
+    int count;    /* smoke burst puff count */
+    int variant;  /* one popup sprite index */
+} SimFx;
+
+typedef struct SimSoundEvent {
+    int sound;
+    int loop;
+} SimSoundEvent;
+
+/* Per-part flags (parallel to SimDog.chain).
+ * first: part directly behind the head (front legs).
+ * legs:  draws walking legs.
+ * butt:  solid for the dog's own movement probe (the chain body);
+        the last part is not solid so the dog can follow onto it. */
+#define SIM_PART_FIRST 0x1
+#define SIM_PART_LEGS 0x2
+#define SIM_PART_BUTT 0x4
+
+typedef struct SimDog {
+    int alive;
+    int cx, cy;  /* head cell */
+    int dir;     /* 0 down, 90 right, 180 up, 270 left (GameMaker degrees) */
+    int play;    /* dialogue gating */
+    int length;  /* number of body parts */
+    uint16_t chain[SIM_MAX_CHAIN];  /* chain[0] is nearest the head */
+    uint8_t pflag[SIM_MAX_CHAIN];
+    int strain;       /* blocked on the last attempted step (logical only) */
+    int move_timer;   /* ticks until the next held-repeat step */
+    int bark_timer;   /* idle bark alarm, -1 = disabled (title only) */
+    int detached_cell; /* cell the tail vacated on the last step */
+} SimDog;
+
+typedef struct SimBox {
+    int alive;
+    uint16_t cell;
+} SimBox;
+
+typedef struct SimHole {
+    int alive;
+    int full;
+    uint16_t cell;
+} SimHole;
+
+typedef struct SimItem {
+    int alive;
+    uint16_t cell;
+} SimItem;
+
+/* Buttons cover one or two cells: the original places them straddling a
+ * cell boundary, and anything overlapping the button rect pressed it.
+ * zone = cells a 16x16 body (head/parts/holes/doors) presses;
+ * box_zone additionally includes the straddle cell a box presses through
+ * its 4px sprite lid. */
+typedef struct SimButton {
+    int alive;
+    int pressed;
+    uint16_t zone[SIM_MAX_ZONE];
+    int zone_count;
+    uint16_t box_zone[SIM_MAX_ZONE];
+    int box_zone_count;
+} SimButton;
+
+typedef struct SimDoor {
+    int alive;
+    int open;        /* all buttons pressed; cell stays solid until removed */
+    int open_timer;  /* the open animation ticks, then the door poofs */
+    uint16_t cell;
+} SimDoor;
+
+typedef struct SimGoal {
+    int alive;
+    uint16_t cell;
+    int remain;        /* dog.length - 2, the number shown on the house */
+    int win_sound_played;
+} SimGoal;
+
+/* The win tile is placed with xscale 2 (a 32x32 bbox); the zone holds the
+ * cells whose head-sized bbox overlapped it in the original. */
+typedef struct SimWin {
+    int alive;
+    uint16_t zone[SIM_MAX_ZONE];
+    int zone_count;
+} SimWin;
+
+/* oTutorial dialogue state machine (texts ported verbatim). */
+typedef struct SimDbox {
+    float x, y;
+    const char *text;
+} SimDbox;
+
+typedef struct SimDialogue {
+    int active;
+    int index;         /* current box (i) */
+    int last;          /* last box index (num) */
+    int release_ticks; /* ticks since the final press (-1 = not released) */
+    int gates_play;    /* this room's dialogue pauses the dog */
+    float base_scale;  /* dialogue box pop-in target scale (4, or 10 credits) */
+    SimDbox box[8];
+} SimDialogue;
+
+/* oTransition: the one state machine the sim keeps animated fields for,
+ * ported as-is; the renderer draws straight from it.  It persists across
+ * room loads, exactly like the original persistent instance. */
+typedef struct SimTransition {
+    int active;
+    int open_transition, close_transition, retry, next_lvl;
+    float x, text_y;
+    int room_num; /* win counter; labels levels ("LEVEL 1", "LEVEL 2", ...) */
+} SimTransition;
+
+typedef struct SimWorld {
+    int room_index;
+    const LongoRoom *room;
+    int cells_w, cells_h;
+    long tick;
+    long room_loaded_tick; /* guards same-tick meta steps after a reload */
+
+    /* static solids: oBlock cells plus the goal house footprint */
+    uint8_t solid[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
+
+    SimDog dog;
+    SimBox boxes[SIM_MAX_BOXES];
+    int box_count;
+    SimHole holes[SIM_MAX_HOLES];
+    int hole_count;
+    SimItem apples[SIM_MAX_ITEMS];
+    int apple_count;
+    SimItem skulls[SIM_MAX_ITEMS];
+    int skull_count;
+    SimButton buttons[SIM_MAX_BUTTONS];
+    int button_count;
+    int buttons_pressed;
+    SimDoor doors[SIM_MAX_DOORS];
+    int door_count;
+    SimGoal goal;
+    SimWin win;
+
+    int has_title;
+    SimDialogue dialogue;
+    SimTransition trans;
+
+    unsigned int rng;
+
+    SimSoundEvent sounds[SIM_MAX_SOUNDS];
+    int sound_count;
+    SimFx fx[SIM_MAX_FX];
+    int fx_count;
+} SimWorld;
+
+void sim_init(SimWorld *w, unsigned int seed);
+void sim_room_goto(SimWorld *w, int room_index);
+void sim_room_goto_next(SimWorld *w);
+void sim_room_restart(SimWorld *w);
+
+void sim_tick(SimWorld *w, const SimInput *input);
+
+int sim_poll_sounds(SimWorld *w, SimSoundEvent *out);
+int sim_poll_fx(SimWorld *w, SimFx *out);
+void sim_emit_fx(SimWorld *w, SimFxKind kind, float x, float y, float angle,
+                 int count, int variant);
+void sim_play_sound(SimWorld *w, int sound, int loop);
+
+/* Cell helpers shared by the rules. */
+int sim_cell_x(uint16_t cell);
+int sim_cell_y(uint16_t cell);
+uint16_t sim_cell_of(int cx, int cy);
+
+/* Entity-at-cell lookups (used by the rules and the presentation). */
+SimBox *sim_box_at(SimWorld *w, uint16_t cell);
+SimHole *sim_hole_at(SimWorld *w, uint16_t cell);
+int sim_part_at(const SimWorld *w, uint16_t cell);
+
+/* Random in [0, max) / [lo, hi) from the sim's xorshift (cosmetic scatter). */
+float sim_random(SimWorld *w, float max);
+float sim_random_range(SimWorld *w, float lo, float hi);
+
+/* Dog movement, chain and pickup rules (sim_dog.c). */
+void sim_dog_step(SimWorld *w, const SimInput *input);
+
+/* Room order indices into longo_rooms[] (GeneralInfo.RoomOrder). */
+enum {
+    SIM_ROOM_TITLE = 0,
+    SIM_ROOM_TUTORIAL = 1,
+    SIM_ROOM_LEVEL6 = 2,
+    SIM_ROOM_LEVEL5 = 3,
+    SIM_ROOM_LEVEL4 = 4,
+    SIM_ROOM_LEVEL2 = 5,
+    SIM_ROOM_LEVEL1 = 6,
+    SIM_ROOM_LEVEL3 = 7,
+    SIM_ROOM_CREDITS = 8,
+    SIM_ROOM_COUNT = 9 /* the editor and levelbase rooms are dropped */
+};
+
+#endif /* LONGO_SIM_H */
