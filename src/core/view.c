@@ -1,7 +1,9 @@
 #include "view.h"
 
 #include "../objects/box.h"
+#include "../objects/dialogue.h"
 #include "../objects/house.h"
+#include "../objects/transition.h"
 #include "events.h"
 
 #include <math.h>
@@ -416,13 +418,12 @@ void pres_update(Pres *p, SimWorld *w, const SimInput *input)
     }
 
     /* dialogue box scale (pop-in, bounce on advance, shrink on release) */
-    if (w->dialogue.active) {
+    if (dialogue_active()) {
         int advance =
             (input->pressed_space || input->pressed_enter || input->pressed_e) &&
-            !w->trans.close_transition;
-        float target = w->dialogue.release_ticks >= 0 ? 0.6f
-                                                      : w->dialogue.base_scale;
-        if (advance && w->dialogue.release_ticks < 0) {
+            !transition_closing();
+        float target = dialogue_released() ? 0.6f : dialogue_base_scale();
+        if (advance && !dialogue_released()) {
             p->dlg_scale_x = p->dlg_scale_y = 0.5f; /* press bounce */
         }
         p->dlg_scale_x = f_lerp(p->dlg_scale_x, target, 0.15f);

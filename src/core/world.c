@@ -7,7 +7,10 @@
 #include "world.h"
 
 #include "../objects/box.h"
+#include "../objects/dialogue.h"
 #include "../objects/house.h"
+#include "../objects/title.h"
+#include "../objects/transition.h"
 #include "../objects/items.h"
 #include "../objects/hole.h"
 #include "events.h"
@@ -197,97 +200,6 @@ static void arrange_title_dog(SimWorld *w)
 }
 
 /* Dialogue texts, ported verbatim from the oTutorial create event. */
-static const char *const TUTORIAL_TEXTS[7] = {
-    "This is Longo Doggo",
-    "He wants to enter his house, but he's too long so there's no room for him",
-    "Apples make Longo Doggo longer",
-    "Instead, pears make him shorter",
-    "The house number shows how many length units you must lose",
-    "If you get stuck press 'R' to retry",
-    "Control Longo Doggo with the arrow keys"
-};
-static const float TUTORIAL_BOX_X[7] = { 103, 136, 198, 0, 144, 103, 103 };
-static const float TUTORIAL_BOX_Y[7] = { 80, 56, 119, 119, 56, 80, 80 };
-
-static const char *const LEVEL6_TEXTS[3] = {
-    "This is a door",
-    "It only opens once all the buttons are pressed simultaneously",
-    "Buttons can be pressed either by Longo Doggo or boxes, which you can push on the sides"
-};
-static const float LEVEL6_BOX_X[3] = { 247, 174, 102 };
-static const float LEVEL6_BOX_Y[3] = { 51, 120, 65 };
-
-static const char *const LEVEL4_TEXTS[1] = {
-    "Holes will prevent you from advancing unless you fill them with something"
-};
-static const float LEVEL4_BOX_X[1] = { 119 };
-static const float LEVEL4_BOX_Y[1] = { 37 };
-
-static const char *const CREDITS_TEXTS[2] = {
-    "Thank you for playing! \n \n Game made by Romeu Esteve (@Romeuski) for the 'Tu juego a juicio Jam 2021' \n Using Game Maker Studio 2, freesound.org and Ableton Live 10",
-    "If you enjoyed the experience please leave a comment in the itch.io page, I love feedback!"
-};
-static const float CREDITS_BOX_X[2] = { 151, 151 };
-static const float CREDITS_BOX_Y[2] = { 37, 37 };
-
-static void setup_dialogue(SimWorld *w, int room_index, float x, float y)
-{
-    SimDialogue *d = &w->dialogue;
-    memset(d, 0, sizeof(*d));
-    d->active = 1;
-    d->index = 0;
-    d->release_ticks = -1; /* not released yet */
-    d->box[0].x = x;
-    d->box[0].y = y;
-
-    if (room_index == SIM_ROOM_TUTORIAL) {
-        d->last = 6;
-        d->gates_play = 1;
-        d->base_scale = 4;
-        for (int i = 0; i <= d->last; i++) {
-            d->box[i].x = TUTORIAL_BOX_X[i];
-            d->box[i].y = TUTORIAL_BOX_Y[i];
-            d->box[i].text = TUTORIAL_TEXTS[i];
-        }
-        /* box 3 sits beside the first skull (skull->x - 8) */
-        for (int i = 0; i < skull_count(); i++) {
-            if (skull_alive(i)) {
-                d->box[3].x =
-                    (float)(sim_cell_x(skull_cell(i)) * SIM_CELL - 8);
-                break;
-            }
-        }
-    } else if (room_index == SIM_ROOM_LEVEL6) {
-        d->last = 2;
-        d->gates_play = 1;
-        d->base_scale = 4;
-        for (int i = 0; i <= d->last; i++) {
-            d->box[i].x = LEVEL6_BOX_X[i];
-            d->box[i].y = LEVEL6_BOX_Y[i];
-            d->box[i].text = LEVEL6_TEXTS[i];
-        }
-    } else if (room_index == SIM_ROOM_LEVEL4) {
-        d->last = 0;
-        d->gates_play = 1;
-        d->base_scale = 4;
-        d->box[0].x = LEVEL4_BOX_X[0];
-        d->box[0].y = LEVEL4_BOX_Y[0];
-        d->box[0].text = LEVEL4_TEXTS[0];
-    } else if (room_index == SIM_ROOM_CREDITS) {
-        d->last = 1;
-        d->gates_play = 0;
-        d->base_scale = 10;
-        for (int i = 0; i <= d->last; i++) {
-            d->box[i].x = CREDITS_BOX_X[i];
-            d->box[i].y = CREDITS_BOX_Y[i];
-            d->box[i].text = CREDITS_TEXTS[i];
-        }
-    } else {
-        d->active = 0;
-    }
-    if (d->gates_play) w->dog.play = 0;
-}
-
 static void load_room(SimWorld *w, int room_index)
 {
     const LongoRoom *room = longo_rooms[room_index];
@@ -316,8 +228,8 @@ static void load_room(SimWorld *w, int room_index)
     memset(w->doors, 0, sizeof(w->doors));
     w->door_count = 0;
     house_reset();
-    w->has_title = 0;
-    memset(&w->dialogue, 0, sizeof(w->dialogue));
+    title_reset();
+    dialogue_reset();
 
     for (int i = 0; i < room->instance_count; i++) {
         const LongoRoomInstance *p = &room->instances[i];
@@ -407,7 +319,7 @@ static void load_room(SimWorld *w, int room_index)
         }
         case LONGO_OBJ_TITLE:
             title = 1;
-            events_sound(SND_PLACEHOLDER, 1);
+            title_place();
             break;
         case LONGO_OBJ_TUTORIAL:
             tutorial_x = p->x;
@@ -421,10 +333,9 @@ static void load_room(SimWorld *w, int room_index)
         }
     }
 
-    w->has_title = title;
     if (have_dog) spawn_dog(w, dog_x, dog_y);
     if (title) arrange_title_dog(w);
-    if (have_tutorial) setup_dialogue(w, room_index, tutorial_x, tutorial_y);
+    if (have_tutorial) dialogue_start(room_index);
     /* oGoalUp create defaults remain to 1; the first house_tick recomputes
      * it to dog.length - 2.  Initialising here prevents the win from
      * arming on the load tick itself (house_reset pre-seeds it). */
@@ -505,78 +416,14 @@ static void update_goal(SimWorld *w)
 /* Meta state machines (title, dialogue, transition)                   */
 /* ------------------------------------------------------------------ */
 
-static void update_title(SimWorld *w, const SimInput *input)
-{
-    if (!w->has_title || !input->pressed_any) return;
-    w->trans.active = 1;
-    w->trans.next_lvl = 1;
-    w->trans.open_transition = 1;
-}
-
-/* oTutorial Draw event port; the box scale easing is presentation-side. */
-static void update_dialogue(SimWorld *w, const SimInput *input)
-{
-    SimDialogue *d = &w->dialogue;
-    if (!d->active) return;
-    if (d->release_ticks >= 0) {
-        if (++d->release_ticks >= SIM_DIALOGUE_SHRINK_TICKS) d->active = 0;
-        return;
-    }
-    if ((input->pressed_space || input->pressed_enter || input->pressed_e) &&
-        !w->trans.close_transition) {
-        if (d->index < d->last) {
-            d->index++;
-        } else {
-            d->release_ticks = 0;
-            if (d->gates_play) w->dog.play = 1;
-        }
-    }
-}
-
-/* oTransition Draw event port, verbatim (it is the one state machine the
- * sim keeps its animated floats for; the renderer reads them directly). */
-static void update_transition(SimWorld *w)
-{
-    SimTransition *t = &w->trans;
-    if (!t->active) return;
-    if (t->open_transition) {
-        if (t->x >= -20.0f) {
-            t->x = f_lerp(t->x, -31.0f, 0.04f);
-        } else {
-            t->x = 304.0f;
-            t->close_transition = 1;
-            if (t->retry) {
-                sim_room_restart(w);
-                t->retry = 0;
-            } else if (t->next_lvl) {
-                sim_room_goto_next(w);
-                t->next_lvl = 0;
-            }
-            t->open_transition = 0;
-        }
-        if (t->room_num <= 7) t->text_y = f_lerp(t->text_y, 208.0f / 2 + 4, 0.05f);
-    } else if (t->close_transition) {
-        /* GML ran this lerp four times per frame (208/64 passes). */
-        for (int i = 0; i < 4; i++) {
-            if (t->x >= -63.0f) {
-                t->x = f_lerp(t->x, -64.0f, 0.02f);
-            } else {
-                t->close_transition = 0;
-            }
-        }
-        if (t->room_num <= 7) t->text_y = f_lerp(t->text_y, 208.0f + 16, 0.16f);
-    } else {
-        t->x = 304.0f;
-        t->text_y = -16.0f;
-    }
-}
-
 /* ------------------------------------------------------------------ */
 /* Tick                                                                */
 /* ------------------------------------------------------------------ */
 
 void sim_tick(SimWorld *w, const SimInput *input)
 {
+    if (input) w->input = *input;
+    else memset(&w->input, 0, sizeof(w->input));
     w->tick++;
     events_clear();
 
@@ -589,15 +436,15 @@ void sim_tick(SimWorld *w, const SimInput *input)
     update_goal(w);
 
     /* 3. title -> transition request */
-    if (w->room_loaded_tick != w->tick) update_title(w, input);
+    if (w->room_loaded_tick != w->tick) title_tick();
 
     /* 4. transition FSM (may reload the room mid-tick, like the original
      * persistent instance) */
-    update_transition(w);
+    transition_tick();
 
-    /* 5. dialogue (runs on the room loaded this tick? the original skipped
-     * instances born this tick, so skip if the room just changed) */
-    if (w->room_loaded_tick != w->tick) update_dialogue(w, input);
+    /* 5. dialogue (the original skipped instances born this tick, so skip
+     * if the room just changed) */
+    if (w->room_loaded_tick != w->tick) dialogue_tick();
 }
 
 /* ------------------------------------------------------------------ */
@@ -623,11 +470,8 @@ void sim_init(unsigned int seed)
     memset(w, 0, sizeof(*w));
     w->rng = seed ? seed : 0x1234u;
     w->tick = 1;
-    /* oTransition create values; it persists across rooms like the
-     * original persistent instance (placed only in the title room). */
-    w->trans.active = 1;
-    w->trans.x = 304.0f;
-    w->trans.text_y = -16.0f;
-    w->trans.room_num = 1;
+    /* oTransition persists across rooms like the original persistent
+     * instance (placed only in the title room). */
+    transition_reset();
     load_room(w, SIM_ROOM_TITLE);
 }

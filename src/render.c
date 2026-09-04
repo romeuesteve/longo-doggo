@@ -21,7 +21,9 @@
 #include "sprites.h"
 
 #include "objects/box.h"
+#include "objects/dialogue.h"
 #include "objects/house.h"
+#include "objects/transition.h"
 #include "objects/items.h"
 #include "objects/hole.h"
 #include "core/events.h"
@@ -942,17 +944,16 @@ static void draw_tutorial_gui(LongoRender *render, const SimWorld *world,
                               const Pres *pres)
 {
     const LongoBitmapFont *font = font_by_asset(render, 1);
-    const SimDialogue *dlg = &world->dialogue;
-    const SimDbox *box;
+    const Dbox *box;
     float wave;
     float width;
 
-    if (!dlg->active) return;
-    int index = dlg->index;
+    if (!dialogue_active()) return;
+    int index = dialogue_index();
     if (index < 0) index = 0;
     if (index > 7) index = 7;
-    box = &dlg->box[index];
-    if (box->text == NULL) return;
+    box = dialogue_box(index);
+    if (box == NULL || box->text == NULL) return;
     wave = wave_calc(0, 2, 2, 0, pres->time_ms);
 
     draw_sprite_origin(render, LONGO_SPR_DIALOGUEBOX, 0, box->x,
@@ -960,7 +961,7 @@ static void draw_tutorial_gui(LongoRender *render, const SimWorld *world,
                        0.0f, WHITE, 1.0f);
     if (font == NULL || !font->loaded) return;
     float scale = pres->dlg_scale_y * 0.3f;
-    width = 30.0f * dlg->base_scale;
+    width = 30.0f * dialogue_base_scale();
     draw_text_ext_centered(font, box->text, box->x + 0.5f,
                            box->y + wave + 0.5f, 12.0f, width, scale,
                            make_color_rgb(255, 196, 101));
@@ -971,13 +972,13 @@ static void draw_tutorial_gui(LongoRender *render, const SimWorld *world,
 static void draw_transition_gui(LongoRender *render, const SimWorld *world)
 {
     (void)world;
-    const SimTransition *trans = &world->trans;
+    const TransitionState *trans = transition_state();
     Color color2 = make_color_rgb(113 - 10, 153 - 10, 61 - 10);
     Color color = make_color_rgb(141 - 10, 199 - 10, 63 - 10);
 
     if (!trans->active) return;
 
-    if (trans->open_transition) {
+    if (trans->open) {
         for (int i = 0; i < 4; i++) {
             draw_sprite_origin(render, LONGO_SPR_TRANSITION, 0, trans->x,
                                (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f,
@@ -990,7 +991,7 @@ static void draw_transition_gui(LongoRender *render, const SimWorld *world)
                           (int)(304.0f - (trans->x + 32.0f)),
                           LONGO_LOGICAL_HEIGHT, color);
         }
-    } else if (trans->close_transition) {
+    } else if (trans->close) {
         for (int i = 0; i < 4; i++) {
             draw_sprite_origin(render, LONGO_SPR_TRANSITION, 1, trans->x,
                                (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f,
@@ -1009,7 +1010,7 @@ static void draw_transition_gui(LongoRender *render, const SimWorld *world)
     char text[128];
     if (trans->room_num <= 7) {
         snprintf(text, sizeof(text), "LEVEL %d", trans->room_num);
-        if (trans->open_transition || trans->close_transition) {
+        if (trans->open || trans->close) {
             draw_text_left(font, text, 142.0f, trans->text_y + 2.0f, 1.0f,
                            make_color_rgb(0, 128, 0));
             draw_text_left(font, text, 140.0f, trans->text_y, 1.0f, WHITE);

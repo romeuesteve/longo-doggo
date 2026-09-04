@@ -9,7 +9,10 @@
 
 #include "objects/box.h"
 #include "objects/house.h"
+#include "objects/dialogue.h"
 #include "objects/items.h"
+#include "objects/transition.h"
+#include "objects/title.h"
 #include "objects/hole.h"
 
 #include <assert.h>
@@ -49,8 +52,8 @@ static void test_title_flow_and_room_order(void)
     sim_init(42u);
     assert(world.room_index == SIM_ROOM_TITLE);
     assert(strcmp(world.room->name, "rm_title_screen") == 0);
-    assert(world.has_title);
-    assert(world.trans.active); /* persistent from the title room */
+    assert(title_present());
+    assert(transition_state()->active); /* persistent from the title room */
     assert(dog()->alive);
     assert(dog()->length == 5);
 
@@ -60,7 +63,7 @@ static void test_title_flow_and_room_order(void)
     assert(world.room_index == SIM_ROOM_TUTORIAL);
     assert(strcmp(world.room->name, "rm_tutorial") == 0);
     /* "LEVEL 1" transition ran with room_num 1 */
-    assert(world.trans.room_num == 1);
+    assert(transition_state()->room_num == 1);
 }
 
 static void test_tutorial_dialogue_gates_play(void)
@@ -81,7 +84,7 @@ static void test_tutorial_dialogue_gates_play(void)
     tick_with(&input);
     tick_idle(SIM_DIALOGUE_SHRINK_TICKS + 10); /* box shrink, then gone */
     assert(dog()->play == 1);
-    assert(!world.dialogue.active);
+    assert(!dialogue_active());
 }
 
 static void test_movement_and_chain(void)
@@ -303,12 +306,12 @@ static void test_buttons_door_win_retry(void)
     world.dog.cy = sim_cell_y(house_win_zone_cell(0));
     tick_idle(2);
     assert(!house_win_alive());
-    assert(world.trans.next_lvl == 1);
+    assert(transition_state()->next_lvl);
     tick_idle(200);
     assert(world.room_index == SIM_ROOM_LEVEL3);
     assert(strcmp(world.room->name, "rm_level3") == 0);
     /* room_num counts wins, not room indices */
-    assert(world.trans.room_num == 2);
+    assert(transition_state()->room_num == 2);
 }
 
 static void test_retry_reloads_room(void)

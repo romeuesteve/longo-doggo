@@ -20,6 +20,8 @@
 #include "../objects/hole.h"
 #include "../objects/house.h"
 #include "../objects/items.h"
+#include "../objects/title.h"
+#include "../objects/transition.h"
 #include "events.h"
 
 #include <math.h>
@@ -116,10 +118,8 @@ static void resolve_pickups(SimWorld *w)
     }
 
     if (dog->alive && house_try_win(head)) {
-        w->trans.active = 1;
-        w->trans.room_num++;
-        w->trans.next_lvl = 1;
-        w->trans.open_transition = 1;
+        transition_count_win();
+        transition_request_next();
     }
 }
 
@@ -182,14 +182,10 @@ void sim_dog_step(SimWorld *w, const SimInput *input)
     if (!dog->alive) return;
 
     /* oDog Step: R retries unless a wipe is closing */
-    if (input->pressed_r && !w->trans.close_transition) {
-        w->trans.active = 1;
-        w->trans.retry = 1;
-        w->trans.open_transition = 1;
-    }
+    if (input->pressed_r && !transition_closing()) transition_request_retry();
 
     /* the title screen parks the dog */
-    if (w->has_title) dog->play = 0;
+    if (title_present()) dog->play = 0;
 
     if (dog->play && input->pressed_space) emit_bark(w);
 

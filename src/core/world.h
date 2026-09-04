@@ -93,32 +93,8 @@ typedef struct SimDoor {
 } SimDoor;
 
 /* oTutorial dialogue state machine (texts ported verbatim). */
-typedef struct SimDbox {
-    float x, y;
-    const char *text;
-} SimDbox;
-
-typedef struct SimDialogue {
-    int active;
-    int index;         /* current box (i) */
-    int last;          /* last box index (num) */
-    int release_ticks; /* ticks since the final press (-1 = not released) */
-    int gates_play;    /* this room's dialogue pauses the dog */
-    float base_scale;  /* dialogue box pop-in target scale (4, or 10 credits) */
-    SimDbox box[8];
-} SimDialogue;
-
-/* oTransition: the one state machine the sim keeps animated fields for,
- * ported as-is; the renderer draws straight from it.  It persists across
- * room loads, exactly like the original persistent instance. */
-typedef struct SimTransition {
-    int active;
-    int open_transition, close_transition, retry, next_lvl;
-    float x, text_y;
-    int room_num; /* win counter; labels levels ("LEVEL 1", "LEVEL 2", ...) */
-} SimTransition;
-
 typedef struct SimWorld {
+    SimInput input; /* last fed input, readable by scripts via world_ptr() */
     int room_index;
     const LongoRoom *room;
     int cells_w, cells_h;
@@ -134,10 +110,6 @@ typedef struct SimWorld {
     int buttons_pressed;
     SimDoor doors[SIM_MAX_DOORS];
     int door_count;
-
-    int has_title;
-    SimDialogue dialogue;
-    SimTransition trans;
 
     unsigned int rng;
 } SimWorld;
