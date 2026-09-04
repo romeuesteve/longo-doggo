@@ -6,6 +6,9 @@
  */
 #include "world.h"
 
+#include "../objects/hole.h"
+#include "solid.h"
+
 #include <math.h>
 #include <string.h>
 
@@ -100,14 +103,6 @@ SimBox *sim_box_at(SimWorld *w, uint16_t cell)
 {
     for (int i = 0; i < w->box_count; i++)
         if (w->boxes[i].alive && w->boxes[i].cell == cell) return &w->boxes[i];
-    return NULL;
-}
-
-SimHole *sim_hole_at(SimWorld *w, uint16_t cell)
-{
-    for (int i = 0; i < w->hole_count; i++)
-        if (w->holes[i].alive && !w->holes[i].full && w->holes[i].cell == cell)
-            return &w->holes[i];
     return NULL;
 }
 
@@ -338,8 +333,7 @@ static void load_room(SimWorld *w, int room_index)
     memset(&w->dog, 0, sizeof(w->dog));
     memset(w->boxes, 0, sizeof(w->boxes));
     w->box_count = 0;
-    memset(w->holes, 0, sizeof(w->holes));
-    w->hole_count = 0;
+    hole_reset();
     memset(w->apples, 0, sizeof(w->apples));
     w->apple_count = 0;
     memset(w->skulls, 0, sizeof(w->skulls));
@@ -377,13 +371,8 @@ static void load_room(SimWorld *w, int room_index)
             }
             break;
         case LONGO_OBJ_HOLE:
-            if (w->hole_count < SIM_MAX_HOLES) {
-                SimHole *h = &w->holes[w->hole_count++];
-                h->alive = 1;
-                h->full = 0;
-                h->cell = sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                      (int)floorf(p->y / SIM_CELL));
-            }
+            hole_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
+                                   (int)floorf(p->y / SIM_CELL)));
             break;
         case LONGO_OBJ_APPLE:
             if (w->apple_count < SIM_MAX_ITEMS) {
@@ -497,7 +486,11 @@ static void update_buttons(SimWorld *w)
         for (int z = 0; z < b->zone_count && !pressed; z++) {
             uint16_t cell = b->zone[z];
             if (cell_solid(w, cell)) continue;
-            if (sim_hole_at(w, cell) || door_at(w, cell)) pressed = 1;
+            {
+                int hi = hole_index_at(cell);
+                if ((hi >= 0 && !hole_is_full(hi)) || door_at(w, cell))
+                    pressed = 1;
+            }
             if (sim_part_at(w, cell) >= 0) pressed = 1;
             if (w->dog.alive && sim_cell_of(w->dog.cx, w->dog.cy) == cell)
                 pressed = 1;

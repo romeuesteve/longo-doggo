@@ -16,6 +16,8 @@
  */
 #include "world.h"
 
+#include "../objects/hole.h"
+
 #include <math.h>
 
 static int in_bounds(const SimWorld *w, int cx, int cy)
@@ -62,7 +64,8 @@ static void shift_chain(SimDog *dog, uint16_t old_head)
 static int blocked_for(SimWorld *w, uint16_t cell)
 {
     if (w->solid[cell]) return 1;
-    if (sim_hole_at(w, cell)) return 1;
+    if (hole_index_at(cell) >= 0 && !hole_is_full(hole_index_at(cell)))
+        return 1;
     if (door_at(w, cell)) return 1;
     int part = sim_part_at(w, cell);
     if (part >= 0 && (w->dog.pflag[part] & SIM_PART_BUTT)) return 1;
@@ -157,10 +160,10 @@ static int try_step(SimWorld *w, int dir)
         uint16_t beyond = neighbour(target, dir);
         int bcx = sim_cell_x(beyond);
         int bcy = sim_cell_y(beyond);
-        SimHole *hole = in_bounds(w, bcx, bcy) ? sim_hole_at(w, beyond) : NULL;
-        if (hole) {
+        int hole = in_bounds(w, bcx, bcy) ? hole_index_at(beyond) : -1;
+        if (hole >= 0) {
             box->alive = 0;
-            hole->full = 1;
+            hole_fill(hole);
             {
                 /* the box visual glides into the hole, then vanishes */
                 SimFx *fx = &w->fx[w->fx_count < SIM_MAX_FX ? w->fx_count : 0];

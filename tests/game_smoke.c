@@ -7,6 +7,8 @@
  */
 #include "core/world.h"
 
+#include "objects/hole.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,9 +31,9 @@ static SimBox *box_at_cell(int cx, int cy)
     return sim_box_at(&world, sim_cell_of(cx, cy));
 }
 
-static SimHole *hole_at_cell(int cx, int cy)
+static int hole_at_cell(int cx, int cy)
 {
-    return sim_hole_at(&world, sim_cell_of(cx, cy));
+    return hole_index_at(sim_cell_of(cx, cy));
 }
 
 /* ---------------------------------------------------------------- */
@@ -179,10 +181,10 @@ static void test_walls_and_push_rules(void)
     tick_idle(2);
 
     SimBox *box = box_at_cell(6, 5);
-    SimHole *hole = hole_at_cell(13, 5);
+    int hole = hole_at_cell(13, 5);
     assert(box != NULL);
-    assert(hole != NULL);
-    assert(hole->full == 0);
+    assert(hole >= 0);
+    assert(hole_is_full(hole) == false);
 
     /* a box pushed into the hole fills it and the box is destroyed */
     box->cell = sim_cell_of(12, 5); /* one cell left of the hole */
@@ -196,7 +198,7 @@ static void test_walls_and_push_rules(void)
         input.held_right = 1;
         tick_with(&input);
     }
-    assert(hole->full == 1);
+    assert(hole_is_full(hole));
     assert(box->alive == 0);
     assert(dog()->cx == 12); /* the dog took the box's old cell */
 

@@ -20,6 +20,8 @@
 #include "room_tiles.h"
 #include "sprites.h"
 
+#include "objects/hole.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1193,12 +1195,11 @@ static void draw_item(LongoRender *render, const SimWorld *world,
         break;
     }
     case SLOT_HOLE: {
-        const SimHole *h = &world->holes[item->index];
-        if (h->alive)
-            draw_sprite_origin(render, LONGO_SPR_HOLE, h->full ? 1 : 0,
-                               (float)(sim_cell_x(h->cell) * SIM_CELL),
-                               (float)(sim_cell_y(h->cell) * SIM_CELL), 1.0f,
-                               1.0f, 0.0f, WHITE, 1.0f);
+        int i = item->index;
+        draw_sprite_origin(render, LONGO_SPR_HOLE, hole_is_full(i) ? 1 : 0,
+                           (float)(sim_cell_x(hole_cell(i)) * SIM_CELL),
+                           (float)(sim_cell_y(hole_cell(i)) * SIM_CELL), 1.0f,
+                           1.0f, 0.0f, WHITE, 1.0f);
         break;
     }
     case SLOT_BUTTON: {
@@ -1282,7 +1283,7 @@ static void draw_item(LongoRender *render, const SimWorld *world,
 void longo_render_frame(LongoRender *render, const SimWorld *world,
                         const Pres *pres)
 {
-    DrawItem items[20 + SIM_MAX_BOXES + SIM_MAX_HOLES + SIM_MAX_ITEMS * 2 +
+    DrawItem items[20 + SIM_MAX_BOXES + HOLE_MAX + SIM_MAX_ITEMS * 2 +
                    SIM_MAX_BUTTONS + SIM_MAX_DOORS + PRES_MAX_FLOWERS +
                    PRES_MAX_FLIES + PRES_MAX_SMOKE + PRES_MAX_POPUPS +
                    PRES_MAX_BARKS + PRES_MAX_SINKS];
@@ -1324,9 +1325,8 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
     for (int i = 0; i < world->skull_count; i++)
         if (world->skulls[i].alive)
             items[item_count++] = (DrawItem){ 100, 90 + i, SLOT_SKULL, i };
-    for (int i = 0; i < world->hole_count; i++)
-        if (world->holes[i].alive)
-            items[item_count++] = (DrawItem){ 200, 130 + i, SLOT_HOLE, i };
+    for (int i = 0; i < hole_count(); i++)
+        items[item_count++] = (DrawItem){ 200, 130 + i, SLOT_HOLE, i };
     for (int i = 0; i < world->button_count; i++)
         if (world->buttons[i].alive)
             items[item_count++] = (DrawItem){ 200, 150 + i, SLOT_BUTTON, i };

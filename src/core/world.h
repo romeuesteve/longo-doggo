@@ -35,7 +35,6 @@
 
 #define SIM_MAX_CHAIN 64 /* dog body parts (original LONGO_MAX_DOG_INS) */
 #define SIM_MAX_BOXES 32
-#define SIM_MAX_HOLES 32
 #define SIM_MAX_ITEMS 32
 #define SIM_MAX_BUTTONS 16
 #define SIM_MAX_DOORS 8
@@ -114,12 +113,6 @@ typedef struct SimBox {
     int alive;
     uint16_t cell;
 } SimBox;
-
-typedef struct SimHole {
-    int alive;
-    int full;
-    uint16_t cell;
-} SimHole;
 
 typedef struct SimItem {
     int alive;
@@ -201,8 +194,6 @@ typedef struct SimWorld {
     SimDog dog;
     SimBox boxes[SIM_MAX_BOXES];
     int box_count;
-    SimHole holes[SIM_MAX_HOLES];
-    int hole_count;
     SimItem apples[SIM_MAX_ITEMS];
     int apple_count;
     SimItem skulls[SIM_MAX_ITEMS];
@@ -247,7 +238,6 @@ uint16_t sim_cell_of(int cx, int cy);
 
 /* Entity-at-cell lookups (used by the rules and the presentation). */
 SimBox *sim_box_at(SimWorld *w, uint16_t cell);
-SimHole *sim_hole_at(SimWorld *w, uint16_t cell);
 int sim_part_at(const SimWorld *w, uint16_t cell);
 
 /* Random in [0, max) / [lo, hi) from the sim's xorshift (cosmetic scatter). */
