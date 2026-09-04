@@ -1,0 +1,92 @@
+﻿=== ROOM ORDER (data.win list order; index 0 = game start, room_goto_next follows this) ===
+ROOM 0: rm_tutorial
+ROOM 1: rm_level1
+ROOM 2: rm_editor
+ROOM 3: rm_credits
+ROOM 4: rm_levelbase
+ROOM 5: rm_level5
+ROOM 6: rm_level3
+ROOM 7: rm_level6
+ROOM 8: rm_level4
+ROOM 9: rm_level2
+ROOM 10: rm_title_screen
+
+=== SPRITES (index: name frames WxH origin) ===
+SPRITE 0: sprBlock frames=2 16x16 origin=(0,0)
+SPRITE 1: sprHole frames=9 16x16 origin=(0,0)
+SPRITE 2: sprButton frames=9 16x16 origin=(0,0)
+SPRITE 3: sprTransition frames=2 64x64 origin=(0,0)
+SPRITE 4: sprDogPaw frames=1 16x16 origin=(8,8)
+SPRITE 5: sprOldDog frames=5 64x64 origin=(0,0)
+SPRITE 6: sprHouse frames=2 64x64 origin=(32,64)
+SPRITE 7: sprFly frames=8 16x16 origin=(0,0)
+SPRITE 8: sprDogUp frames=4 16x16 origin=(8,8)
+SPRITE 9: sprButton43 frames=9 32x32 origin=(0,0)
+SPRITE 10: sprPear frames=8 16x16 origin=(0,0)
+SPRITE 11: sprBox frames=1 16x20 origin=(0,4)
+SPRITE 12: spr_placeholder_module frames=1 64x64 origin=(32,32)
+SPRITE 13: sprIcon frames=1 16x16 origin=(0,0)
+SPRITE 14: sprBark frames=7 16x16 origin=(8,8)
+SPRITE 15: sprTile frames=1 32x32 origin=(0,0)
+SPRITE 16: sprFlower frames=4 8x8 origin=(0,0)
+SPRITE 17: sprSmoke frames=1 16x16 origin=(8,8)
+SPRITE 18: sprDogTail frames=4 16x16 origin=(8,8)
+SPRITE 19: sprTitle frames=3 191x149 origin=(0,0)
+SPRITE 20: sprDogLeft frames=4 16x16 origin=(8,8)
+SPRITE 21: sprDogRight frames=4 16x16 origin=(8,8)
+SPRITE 22: sprDialogueBox frames=1 24x24 origin=(12,12)
+SPRITE 23: sprApple frames=8 16x16 origin=(0,0)
+SPRITE 24: sprSkull frames=4 18x18 origin=(0,0)
+SPRITE 25: sprIcon2 frames=1 16x16 origin=(0,0)
+SPRITE 26: sprButtonPressed frames=1 16x16 origin=(0,0)
+SPRITE 27: sprOne frames=2 8x8 origin=(0,0)
+SPRITE 28: sprDoor frames=1 16x16 origin=(0,0)
+SPRITE 29: sprDogDown frames=4 16x16 origin=(8,8)
+
+=== OBJECTS (index: name sprite persistent visible depth collisionShape parent) ===
+OBJECT 0: obj_bloom_appsrf sprite=spr_placeholder_module persistent=True visible=True depth=0 solid=False parent=<none>
+OBJECT 1: oSkull sprite=sprPear persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 2: oTutorial sprite=sprDialogueBox persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 3: oButterfly sprite=sprFly persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 4: oBlock sprite=sprBlock persistent=False visible=False depth=0 solid=False parent=<none>
+OBJECT 5: oButton sprite=sprButton persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 6: oHouseSpawner sprite=sprIcon2 persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 7: oApple sprite=sprApple persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 8: oStupidBlock sprite=sprBlock persistent=False visible=False depth=0 solid=False parent=<none>
+OBJECT 9: oTransition sprite=<none> persistent=True visible=True depth=0 solid=False parent=<none>
+OBJECT 10: oHole sprite=sprHole persistent=False visible=True depth=0 solid=False parent=oBlock
+OBJECT 11: oMouse sprite=sprDogPaw persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 12: oTitle sprite=sprTitle persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 13: oGoalUp sprite=<none> persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 14: par_module sprite=<none> persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 15: oWin sprite=sprBlock persistent=False visible=False depth=0 solid=False parent=<none>
+OBJECT 16: oGoal sprite=sprHouse persistent=False visible=True depth=0 solid=False parent=oBlock
+OBJECT 17: oPostEffects sprite=<none> persistent=True visible=True depth=0 solid=False parent=<none>
+OBJECT 18: oFlower sprite=sprFlower persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 19: oDoor sprite=sprDoor persistent=False visible=True depth=0 solid=False parent=oBlock
+OBJECT 20: oDogPart sprite=sprDogPaw persistent=False visible=False depth=0 solid=False parent=oBlock
+OBJECT 21: oSmoke sprite=sprSmoke persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 22: oBark sprite=sprBark persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 23: oDogSpawner sprite=sprIcon persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 24: oBox sprite=sprBox persistent=False visible=True depth=0 solid=False parent=oBlock
+OBJECT 25: oShadows sprite=<none> persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 26: oDog sprite=sprDogUp persistent=False visible=True depth=0 solid=False parent=<none>
+OBJECT 27: oOne sprite=sprOne persistent=False visible=True depth=0 solid=False parent=<none>
+
+=== SOUNDS ===
+SOUND 0: snd_placeholder flags=IsEmbedded, Regular
+SOUND 1: snd_poof flags=IsEmbedded, Regular
+SOUND 2: snd_wrong flags=IsEmbedded, Regular
+SOUND 3: snd_pushed flags=IsEmbedded, Regular
+SOUND 4: snd_win flags=IsEmbedded, Regular
+SOUND 5: snd_button flags=IsEmbedded, Regular
+SOUND 6: snd_bark flags=IsEmbedded, Regular
+
+=== FONTS ===
+FONT 0: LongoFontBold size=9 bold=True italic=False range=(32-9647)
+FONT 1: LongoFont size=8 bold=True italic=False range=(32-9647)
+FONT 2: FontDigits size=8 bold=True italic=False range=(32-9647)
+
+=== GAME OPTIONS / GENERAL ===
+generalinfo inferrer: doggo major=2 minor=3 build=0
+DefaultWindowWidth=1216 DefaultWindowHeight=832

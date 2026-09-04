@@ -1,0 +1,79 @@
+﻿UndertaleRoom properties:
+  UndertaleString Name
+  UndertaleString Caption
+  UInt32 Width
+  UInt32 Height
+  UInt32 Speed
+  Boolean Persistent
+  UInt32 BackgroundColor
+  Boolean DrawBackgroundColor
+  UndertaleCode CreationCodeId
+  RoomEntryFlags Flags
+  Boolean World
+  UInt32 Top
+  UInt32 Left
+  UInt32 Right
+  UInt32 Bottom
+  Single GravityX
+  Single GravityY
+  Single MetersPerPixel
+  Double GridWidth
+  Double GridHeight
+  Double GridThicknessPx
+  UndertalePointerList`1 Backgrounds
+  UndertalePointerList`1 Views
+  UndertalePointerList`1 GameObjects
+  UndertalePointerList`1 Tiles
+  InstanceIDList InstanceCreationOrderIDs
+  UndertalePointerList`1 Layers
+  UndertaleSimpleList`1 Sequences
+  Layer BGColorLayer
+  String ProjectName
+  SerializableAssetType ProjectAssetType
+  Boolean ProjectExportable
+
+ROOM rm_tutorial:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_level1:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_editor:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_credits:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_levelbase:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_level5:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_level3:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_level6:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_level4:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_level2:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+ROOM rm_title_screen:
+  CreationCodeId = <null>
+  InstanceCreationOrderIDs = <null>
+
+Code entries matching room/creation patterns:

@@ -1,0 +1,11 @@
+open_transition = 0;
+close_transition = 0;
+retry = 0;
+next_lvl = 0;
+depth = -1000;
+text_y = -16;
+room_num = 1;
+menu = 0;
+volume = 10;
+menu_item[0] = 0;
+option = 0;

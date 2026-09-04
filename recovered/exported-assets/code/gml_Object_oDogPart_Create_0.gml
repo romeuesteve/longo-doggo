@@ -1,0 +1,9 @@
+xx = x;
+yy = y;
+first = 0;
+xprev = xx;
+yprev = yy + 16;
+draw_legs = 0;
+block = 1;
+push = 0;
+legs_angle = 0;
