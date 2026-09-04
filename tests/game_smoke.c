@@ -7,13 +7,14 @@
  */
 #include "core/world.h"
 
+#include "objects/box.h"
 #include "objects/hole.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-static SimWorld world;
+#define world (*world_ptr())
 
 static void tick_with(const SimInput *input) { sim_tick(&world, input); }
 
@@ -26,9 +27,9 @@ static void tick_idle(int n)
 
 static SimDog *dog(void) { return &world.dog; }
 
-static SimBox *box_at_cell(int cx, int cy)
+static int box_at_cell(int cx, int cy)
 {
-    return sim_box_at(&world, sim_cell_of(cx, cy));
+    return box_index_at(sim_cell_of(cx, cy));
 }
 
 static int hole_at_cell(int cx, int cy)
@@ -43,7 +44,7 @@ static void test_title_flow_and_room_order(void)
     SimInput input;
     memset(&input, 0, sizeof(input));
 
-    sim_init(&world, 42u);
+    sim_init(42u);
     assert(world.room_index == SIM_ROOM_TITLE);
     assert(strcmp(world.room->name, "rm_title_screen") == 0);
     assert(world.has_title);
@@ -180,14 +181,14 @@ static void test_walls_and_push_rules(void)
     assert(strcmp(world.room->name, "rm_level1") == 0);
     tick_idle(2);
 
-    SimBox *box = box_at_cell(6, 5);
+    int box = box_at_cell(6, 5);
     int hole = hole_at_cell(13, 5);
-    assert(box != NULL);
+    assert(box >= 0);
     assert(hole >= 0);
     assert(hole_is_full(hole) == false);
 
     /* a box pushed into the hole fills it and the box is destroyed */
-    box->cell = sim_cell_of(12, 5); /* one cell left of the hole */
+    box_set_cell(box, sim_cell_of(12, 5)); /* one cell left of the hole */
     {
         SimInput input;
         memset(&input, 0, sizeof(input));
@@ -199,7 +200,7 @@ static void test_walls_and_push_rules(void)
         tick_with(&input);
     }
     assert(hole_is_full(hole));
-    assert(box->alive == 0);
+    assert(box_alive(box) == false);
     assert(dog()->cx == 12); /* the dog took the box's old cell */
 
     /* walls block: stepping into a static block strains in place */
@@ -245,12 +246,9 @@ static void test_buttons_door_win_retry(void)
     for (int i = 0; i < world.button_count - 1; i++) {
         SimButton *b = &world.buttons[i];
         uint16_t cell = b->zone[b->zone_count / 2];
-        SimBox *existing = sim_box_at(&world, cell);
-        if (existing && existing != &world.boxes[i])
-            existing->cell = sim_cell_of(0, 0);
-        assert(i < world.box_count);
-        world.boxes[i].alive = 1;
-        world.boxes[i].cell = cell;
+        int existing = box_index_at(cell);
+        if (existing >= 0 && existing != i) box_set_cell(existing, sim_cell_of(0, 0));
+        box_set_cell(i, cell);
         tick_idle(1);
     }
     tick_idle(1);
@@ -268,8 +266,7 @@ static void test_buttons_door_win_retry(void)
     {
         SimButton *b = &world.buttons[world.button_count - 1];
         uint16_t cell = b->box_zone[b->box_zone_count - 1];
-        world.boxes[world.button_count - 1].alive = 1;
-        world.boxes[world.button_count - 1].cell = cell;
+        box_set_cell(world.button_count - 1, cell);
     }
     tick_idle(1);
     assert(world.buttons_pressed == world.button_count);
@@ -277,8 +274,8 @@ static void test_buttons_door_win_retry(void)
 
     /* park the dog off the zones (length 0 so no part overlaps anything):
      * unpressing buttons closes nothing, but drops the pressed count */
-    for (int j = 0; j < world.box_count; j++) {
-        if (world.boxes[j].alive) world.boxes[j].cell = sim_cell_of(0, 0);
+    for (int j = 0; j < box_count(); j++) {
+        if (box_alive(j)) box_set_cell(j, sim_cell_of(0, 0));
     }
     world.dog.alive = 0;
     tick_idle(1);

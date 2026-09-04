@@ -20,7 +20,9 @@
 #include "room_tiles.h"
 #include "sprites.h"
 
+#include "objects/box.h"
 #include "objects/hole.h"
+#include "core/events.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -317,18 +319,18 @@ bool longo_render_init(LongoRender *render, const char *asset_root)
 
     if (!IsAudioDeviceReady()) InitAudioDevice();
     render->audio_ready = IsAudioDeviceReady();
-    render->sounds[LONGO_SND_BARK] = load_sound_relative(render, "snd_bark.wav",
-        &render->sound_loaded[LONGO_SND_BARK]);
-    render->sounds[LONGO_SND_BUTTON] = load_sound_relative(render,
-        "snd_button.wav", &render->sound_loaded[LONGO_SND_BUTTON]);
-    render->sounds[LONGO_SND_POOF] = load_sound_relative(render, "snd_poof.wav",
-        &render->sound_loaded[LONGO_SND_POOF]);
-    render->sounds[LONGO_SND_PUSHED] = load_sound_relative(render,
-        "snd_pushed.wav", &render->sound_loaded[LONGO_SND_PUSHED]);
-    render->sounds[LONGO_SND_WIN] = load_sound_relative(render, "snd_win.wav",
-        &render->sound_loaded[LONGO_SND_WIN]);
-    render->sounds[LONGO_SND_WRONG] = load_sound_relative(render,
-        "snd_wrong.wav", &render->sound_loaded[LONGO_SND_WRONG]);
+    render->sounds[SND_BARK] = load_sound_relative(render, "snd_bark.wav",
+        &render->sound_loaded[SND_BARK]);
+    render->sounds[SND_BUTTON] = load_sound_relative(render,
+        "snd_button.wav", &render->sound_loaded[SND_BUTTON]);
+    render->sounds[SND_POOF] = load_sound_relative(render, "snd_poof.wav",
+        &render->sound_loaded[SND_POOF]);
+    render->sounds[SND_PUSHED] = load_sound_relative(render,
+        "snd_pushed.wav", &render->sound_loaded[SND_PUSHED]);
+    render->sounds[SND_WIN] = load_sound_relative(render, "snd_win.wav",
+        &render->sound_loaded[SND_WIN]);
+    render->sounds[SND_WRONG] = load_sound_relative(render,
+        "snd_wrong.wav", &render->sound_loaded[SND_WRONG]);
     render->music = load_sound_relative(render, "snd_placeholder.wav",
                                         &render->music_loaded);
     return render->app_surface.id != 0;
@@ -771,8 +773,8 @@ static void build_shadow_surface(LongoRender *render, const SimWorld *world,
         draw_sprite_origin(render, LONGO_SPR_HOUSE, flower_frame(pres),
                            gx, gy + 4.0f, 1.0f, 0.5f, 0.0f, black, 1.0f);
     }
-    for (int i = 0; i < world->box_count; i++) {
-        if (!world->boxes[i].alive) continue;
+    for (int i = 0; i < box_count(); i++) {
+        if (!box_alive(i)) continue;
         draw_sprite_origin(render, LONGO_SPR_BOX, 0, pres->box_x[i],
                            pres->box_y[i] + 5.0f, 1.0f, 1.0f, 0.0f, black,
                            1.0f);
@@ -1158,15 +1160,13 @@ static void draw_item(LongoRender *render, const SimWorld *world,
     case SLOT_DOG:
         if (world->dog.alive) draw_dog_world(render, world, pres);
         break;
-    case SLOT_BOX: {
-        const SimBox *box = &world->boxes[item->index];
-        if (box->alive)
+    case SLOT_BOX:
+        if (box_alive(item->index))
             draw_sprite_origin(render, LONGO_SPR_BOX, 0,
                                pres->box_x[item->index],
                                pres->box_y[item->index], 1.0f, 1.0f, 0.0f,
                                WHITE, 1.0f);
         break;
-    }
     case SLOT_SINK: {
         const PresSink *s = &pres->sinks[item->index];
         if (s->alive)
@@ -1283,7 +1283,7 @@ static void draw_item(LongoRender *render, const SimWorld *world,
 void longo_render_frame(LongoRender *render, const SimWorld *world,
                         const Pres *pres)
 {
-    DrawItem items[20 + SIM_MAX_BOXES + HOLE_MAX + SIM_MAX_ITEMS * 2 +
+    DrawItem items[20 + BOX_MAX + HOLE_MAX + SIM_MAX_ITEMS * 2 +
                    SIM_MAX_BUTTONS + SIM_MAX_DOORS + PRES_MAX_FLOWERS +
                    PRES_MAX_FLIES + PRES_MAX_SMOKE + PRES_MAX_POPUPS +
                    PRES_MAX_BARKS + PRES_MAX_SINKS];
@@ -1311,8 +1311,8 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
     if (pres->shadows_present)
         items[item_count++] = (DrawItem){ 210, 3, SLOT_SHADOWS, 0 };
     if (world->dog.alive) items[item_count++] = (DrawItem){ 0, 4, SLOT_DOG, 0 };
-    for (int i = 0; i < world->box_count; i++) {
-        if (!world->boxes[i].alive) continue;
+    for (int i = 0; i < box_count(); i++) {
+        if (!box_alive(i)) continue;
         items[item_count++] = (DrawItem){
             (int)(-100 - pres->box_y[i] / 6), 10 + i, SLOT_BOX, i
         };
@@ -1386,11 +1386,11 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
 
 void longo_render_dispatch_sounds(LongoRender *render, SimWorld *world)
 {
-    SimSoundEvent events[SIM_MAX_SOUNDS];
-    int count = sim_poll_sounds(world, events);
+    SoundEvent events[EVENTS_MAX_SOUNDS];
+    int count = events_poll_sounds(events);
     for (int i = 0; i < count; i++) {
         int snd = events[i].sound;
-        if (snd < 0 || snd > 6) continue;
+        if (snd <= SND_NONE || snd > SND_BARK) continue;
         if (events[i].loop) {
             if (render->music_loaded && !render->music_playing) {
                 PlaySound(render->music);

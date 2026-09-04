@@ -14,10 +14,12 @@
 #ifndef LONGO_SIM_H
 #define LONGO_SIM_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "../level_data.h"
 #include "../sprites.h"
+#include "events.h"
 
 #define SIM_CELL 16
 #define SIM_MAX_CELLS_W 24
@@ -34,24 +36,10 @@
 #define SIM_DIALOGUE_SHRINK_TICKS 34
 
 #define SIM_MAX_CHAIN 64 /* dog body parts (original LONGO_MAX_DOG_INS) */
-#define SIM_MAX_BOXES 32
 #define SIM_MAX_ITEMS 32
 #define SIM_MAX_BUTTONS 16
 #define SIM_MAX_DOORS 8
 #define SIM_MAX_ZONE 16  /* cells covered by one placed object bbox */
-#define SIM_MAX_SOUNDS 64
-#define SIM_MAX_FX 64
-
-/* Sound asset indices recovered from data.win. */
-typedef enum LongoSound {
-    LONGO_SND_PLACEHOLDER = 0,
-    LONGO_SND_POOF = 1,
-    LONGO_SND_WRONG = 2,
-    LONGO_SND_PUSHED = 3,
-    LONGO_SND_WIN = 4,
-    LONGO_SND_BUTTON = 5,
-    LONGO_SND_BARK = 6
-} LongoSound;
 
 typedef struct SimInput {
     /* held directions (arrow keys and WASD merged by the front-end) */
@@ -60,31 +48,6 @@ typedef struct SimInput {
     unsigned char pressed_space, pressed_enter, pressed_e, pressed_r;
     unsigned char pressed_any;
 } SimInput;
-
-/* Visual-effect requests for the presentation layer.  Positions are
- * logical pixels (cell-derived); the presentation owns the particles. */
-typedef enum SimFxKind {
-    SIM_FX_NONE = 0,
-    SIM_FX_SMOKE_BURST, /* count puffs scattered around (x, y) */
-    SIM_FX_BARK,        /* bark wedge at (x, y) rotated image_angle */
-    SIM_FX_ONE,         /* "1" popup at (x, y); variant 1 = shrinking popup */
-    SIM_FX_BOX_SINK     /* box visual easing from (x, y) into a filled hole
-                         * at (tx, ty), then vanishing */
-} SimFxKind;
-
-typedef struct SimFx {
-    SimFxKind kind;
-    float x, y;
-    float tx, ty; /* box sink target */
-    float angle;  /* bark */
-    int count;    /* smoke burst puff count */
-    int variant;  /* one popup sprite index */
-} SimFx;
-
-typedef struct SimSoundEvent {
-    int sound;
-    int loop;
-} SimSoundEvent;
 
 /* Per-part flags (parallel to SimDog.chain).
  * first: part directly behind the head (front legs).
@@ -108,11 +71,6 @@ typedef struct SimDog {
     int bark_timer;   /* idle bark alarm, -1 = disabled (title only) */
     int detached_cell; /* cell the tail vacated on the last step */
 } SimDog;
-
-typedef struct SimBox {
-    int alive;
-    uint16_t cell;
-} SimBox;
 
 typedef struct SimItem {
     int alive;
@@ -192,8 +150,6 @@ typedef struct SimWorld {
     uint8_t solid[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
 
     SimDog dog;
-    SimBox boxes[SIM_MAX_BOXES];
-    int box_count;
     SimItem apples[SIM_MAX_ITEMS];
     int apple_count;
     SimItem skulls[SIM_MAX_ITEMS];
@@ -211,25 +167,18 @@ typedef struct SimWorld {
     SimTransition trans;
 
     unsigned int rng;
-
-    SimSoundEvent sounds[SIM_MAX_SOUNDS];
-    int sound_count;
-    SimFx fx[SIM_MAX_FX];
-    int fx_count;
 } SimWorld;
 
-void sim_init(SimWorld *w, unsigned int seed);
+SimWorld *world_ptr(void);
+void sim_init(unsigned int seed);
 void sim_room_goto(SimWorld *w, int room_index);
 void sim_room_goto_next(SimWorld *w);
 void sim_room_restart(SimWorld *w);
 
 void sim_tick(SimWorld *w, const SimInput *input);
 
-int sim_poll_sounds(SimWorld *w, SimSoundEvent *out);
-int sim_poll_fx(SimWorld *w, SimFx *out);
-void sim_emit_fx(SimWorld *w, SimFxKind kind, float x, float y, float angle,
-                 int count, int variant);
-void sim_play_sound(SimWorld *w, int sound, int loop);
+bool cell_in_bounds(int cx, int cy);
+uint16_t cell_neighbour(uint16_t cell, int dir);
 
 /* Cell helpers shared by the rules. */
 int sim_cell_x(uint16_t cell);
@@ -237,7 +186,6 @@ int sim_cell_y(uint16_t cell);
 uint16_t sim_cell_of(int cx, int cy);
 
 /* Entity-at-cell lookups (used by the rules and the presentation). */
-SimBox *sim_box_at(SimWorld *w, uint16_t cell);
 int sim_part_at(const SimWorld *w, uint16_t cell);
 
 /* Random in [0, max) / [lo, hi) from the sim's xorshift (cosmetic scatter). */

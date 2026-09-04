@@ -15,6 +15,7 @@
 
 #include "world.h"
 
+#define PRES_MAX_BOXES 32 /* mirrors BOX_MAX */
 #define PRES_MAX_FLOWERS 64
 #define PRES_MAX_FLIES 8
 #define PRES_MAX_SMOKE 160
@@ -76,7 +77,7 @@ typedef struct Pres {
     float part_x[SIM_MAX_CHAIN], part_y[SIM_MAX_CHAIN];
     uint16_t part_cell[SIM_MAX_CHAIN];
     int part_wiggle[SIM_MAX_CHAIN];
-    float box_x[SIM_MAX_BOXES], box_y[SIM_MAX_BOXES];
+    float box_x[PRES_MAX_BOXES], box_y[PRES_MAX_BOXES];
 
     PresDoor doors[SIM_MAX_DOORS];
 

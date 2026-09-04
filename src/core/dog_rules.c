@@ -16,7 +16,9 @@
  */
 #include "world.h"
 
+#include "../objects/box.h"
 #include "../objects/hole.h"
+#include "events.h"
 
 #include <math.h>
 
@@ -35,18 +37,6 @@ static SimDoor *door_at(SimWorld *w, uint16_t cell)
 static uint16_t head_cell(const SimWorld *w)
 {
     return sim_cell_of(w->dog.cx, w->dog.cy);
-}
-
-static uint16_t neighbour(uint16_t cell, int dir)
-{
-    int cx = sim_cell_x(cell);
-    int cy = sim_cell_y(cell);
-    switch (dir) {
-    case 0: return sim_cell_of(cx, cy + 1);   /* down */
-    case 90: return sim_cell_of(cx + 1, cy);  /* right */
-    case 180: return sim_cell_of(cx, cy - 1); /* up */
-    default: return sim_cell_of(cx - 1, cy);  /* left */
-    }
 }
 
 static void shift_chain(SimDog *dog, uint16_t old_head)
@@ -103,9 +93,9 @@ static void resolve_pickups(SimWorld *w)
         if (!apple->alive || apple->cell != head) continue;
         apple->alive = 0;
         grow_chain(w, dog->detached_cell);
-        sim_emit_fx(w, SIM_FX_ONE, hx, hy - 8.0f, 0, 0, 0);
-        sim_emit_fx(w, SIM_FX_SMOKE_BURST, hx, hy, 0, 7, 0);
-        sim_play_sound(w, LONGO_SND_POOF, 0);
+        events_fx(FX_ONE, hx, hy - 8.0f, 0, 0, 0, 0, 0);
+        events_fx(FX_SMOKE_BURST,  hx, hy, 0, 0, 0, 7, 0);
+        events_sound(SND_POOF, 0);
     }
 
     for (int i = 0; i < w->skull_count; i++) {
@@ -115,14 +105,13 @@ static void resolve_pickups(SimWorld *w)
         if (dog->length > 2) {
             uint16_t tail = dog->chain[dog->length - 1];
             shrink_chain(w);
-            sim_emit_fx(w, SIM_FX_SMOKE_BURST,
-                        (float)(sim_cell_x(tail) * SIM_CELL + 8),
-                        (float)(sim_cell_y(tail) * SIM_CELL + 8), 0, 7, 0);
-            sim_emit_fx(w, SIM_FX_ONE, hx, hy - 8.0f, 0, 0, 1);
+            events_fx(FX_SMOKE_BURST,  (float)(sim_cell_x(tail) * SIM_CELL + 8),
+                        (float)(sim_cell_y(tail) * SIM_CELL + 8), 0, 0, 0, 7, 0);
+            events_fx(FX_ONE, hx, hy - 8.0f, 0, 0, 0, 0, 1);
         } else {
             dog->alive = 0;
         }
-        sim_play_sound(w, LONGO_SND_POOF, 0);
+        events_sound(SND_POOF, 0);
     }
 
     if (dog->alive && w->win.alive && w->goal.alive && w->goal.remain <= 0) {
@@ -145,7 +134,7 @@ static void resolve_pickups(SimWorld *w)
 static int try_step(SimWorld *w, int dir)
 {
     SimDog *dog = &w->dog;
-    uint16_t target = neighbour(head_cell(w), dir);
+    uint16_t target = cell_neighbour(head_cell(w), dir);
     int tcx = sim_cell_x(target);
     int tcy = sim_cell_y(target);
 
@@ -155,39 +144,10 @@ static int try_step(SimWorld *w, int dir)
         return 0;
     }
 
-    SimBox *box = sim_box_at(w, target);
-    if (box) {
-        uint16_t beyond = neighbour(target, dir);
-        int bcx = sim_cell_x(beyond);
-        int bcy = sim_cell_y(beyond);
-        int hole = in_bounds(w, bcx, bcy) ? hole_index_at(beyond) : -1;
-        if (hole >= 0) {
-            box->alive = 0;
-            hole_fill(hole);
-            {
-                /* the box visual glides into the hole, then vanishes */
-                SimFx *fx = &w->fx[w->fx_count < SIM_MAX_FX ? w->fx_count : 0];
-                if (w->fx_count < SIM_MAX_FX) {
-                    fx = &w->fx[w->fx_count++];
-                    fx->kind = SIM_FX_BOX_SINK;
-                    fx->x = (float)(tcx * SIM_CELL);
-                    fx->y = (float)(tcy * SIM_CELL);
-                    fx->tx = (float)(bcx * SIM_CELL);
-                    fx->ty = (float)(bcy * SIM_CELL);
-                    fx->angle = 0;
-                    fx->count = 0;
-                    fx->variant = 0;
-                }
-            }
-            sim_play_sound(w, LONGO_SND_POOF, 0);
-        } else if (in_bounds(w, bcx, bcy) && !blocked_for(w, beyond) &&
-                   !sim_box_at(w, beyond)) {
-            box->cell = beyond;
-            sim_play_sound(w, LONGO_SND_PUSHED, 0);
-        } else {
-            dog->strain = 1;
-            return 0;
-        }
+    int box = box_index_at(target);
+    if (box >= 0 && !box_push(box, target, dir)) {
+        dog->strain = 1;
+        return 0;
     }
 
     int old_cx = dog->cx;
@@ -212,8 +172,8 @@ static void emit_bark(SimWorld *w)
     case 180: fy -= 12.0f; break;
     default: fx -= 12.0f; break;
     }
-    sim_emit_fx(w, SIM_FX_BARK, fx, fy, (float)dog->dir + 180.0f, 0, 0);
-    sim_play_sound(w, LONGO_SND_BARK, 0);
+    events_fx(FX_BARK, fx, fy, 0, 0, (float)dog->dir + 180.0f, 0, 0);
+    events_sound(SND_BARK, 0);
 }
 
 static int sign(int v)

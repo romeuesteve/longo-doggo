@@ -6,7 +6,9 @@
  */
 #include "world.h"
 
+#include "../objects/box.h"
 #include "../objects/hole.h"
+#include "events.h"
 #include "solid.h"
 
 #include <math.h>
@@ -29,6 +31,28 @@ static int in_bounds(const SimWorld *w, int cx, int cy)
     return cx >= 0 && cy >= 0 && cx < w->cells_w && cy < w->cells_h;
 }
 
+static SimWorld game_world;
+
+SimWorld *world_ptr(void) { return &game_world; }
+
+bool cell_in_bounds(int cx, int cy)
+{
+    SimWorld *w = &game_world;
+    return cx >= 0 && cy >= 0 && cx < w->cells_w && cy < w->cells_h;
+}
+
+uint16_t cell_neighbour(uint16_t cell, int dir)
+{
+    int cx = sim_cell_x(cell);
+    int cy = sim_cell_y(cell);
+    switch (dir) {
+    case 0: return sim_cell_of(cx, cy + 1);   /* down */
+    case 90: return sim_cell_of(cx + 1, cy);  /* right */
+    case 180: return sim_cell_of(cx, cy - 1); /* up */
+    default: return sim_cell_of(cx - 1, cy);  /* left */
+    }
+}
+
 static int cell_solid(const SimWorld *w, uint16_t cell)
 {
     return w->solid[cell] != 0;
@@ -49,62 +73,11 @@ float sim_random_range(SimWorld *w, float lo, float hi)
     return lo + sim_random(w, hi - lo);
 }
 
-static void play_sound(SimWorld *w, int sound, int loop)
-{
-    if (w->sound_count < SIM_MAX_SOUNDS) {
-        w->sounds[w->sound_count].sound = sound;
-        w->sounds[w->sound_count].loop = loop;
-        w->sound_count++;
-    }
-}
-
-void sim_play_sound(SimWorld *w, int sound, int loop)
-{
-    play_sound(w, sound, loop);
-}
-
-void sim_emit_fx(SimWorld *w, SimFxKind kind, float x, float y, float angle,
-                 int count, int variant)
-{
-    if (w->fx_count < SIM_MAX_FX) {
-        SimFx *fx = &w->fx[w->fx_count++];
-        fx->kind = kind;
-        fx->x = x;
-        fx->y = y;
-        fx->angle = angle;
-        fx->count = count;
-        fx->variant = variant;
-    }
-}
-
-int sim_poll_sounds(SimWorld *w, SimSoundEvent *out)
-{
-    int n = w->sound_count;
-    if (n > 0 && out) memcpy(out, w->sounds, sizeof(SimSoundEvent) * (size_t)n);
-    w->sound_count = 0;
-    return n;
-}
-
-int sim_poll_fx(SimWorld *w, SimFx *out)
-{
-    int n = w->fx_count;
-    if (n > 0 && out) memcpy(out, w->fx, sizeof(SimFx) * (size_t)n);
-    w->fx_count = 0;
-    return n;
-}
-
 static float f_lerp(float a, float b, float t) { return a + (b - a) * t; }
 
 /* ------------------------------------------------------------------ */
 /* Entity lookups (linear scans; the counts are tiny)                  */
 /* ------------------------------------------------------------------ */
-
-SimBox *sim_box_at(SimWorld *w, uint16_t cell)
-{
-    for (int i = 0; i < w->box_count; i++)
-        if (w->boxes[i].alive && w->boxes[i].cell == cell) return &w->boxes[i];
-    return NULL;
-}
 
 static SimDoor *door_at(SimWorld *w, uint16_t cell)
 {
@@ -331,8 +304,7 @@ static void load_room(SimWorld *w, int room_index)
 
     memset(w->solid, 0, sizeof(w->solid));
     memset(&w->dog, 0, sizeof(w->dog));
-    memset(w->boxes, 0, sizeof(w->boxes));
-    w->box_count = 0;
+    box_reset();
     hole_reset();
     memset(w->apples, 0, sizeof(w->apples));
     w->apple_count = 0;
@@ -363,12 +335,8 @@ static void load_room(SimWorld *w, int room_index)
             have_dog = 1;
             break;
         case LONGO_OBJ_BOX:
-            if (w->box_count < SIM_MAX_BOXES) {
-                SimBox *b = &w->boxes[w->box_count++];
-                b->alive = 1;
-                b->cell = sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                      (int)floorf(p->y / SIM_CELL));
-            }
+            box_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
+                                  (int)floorf(p->y / SIM_CELL)));
             break;
         case LONGO_OBJ_HOLE:
             hole_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
@@ -443,7 +411,7 @@ static void load_room(SimWorld *w, int room_index)
             break;
         case LONGO_OBJ_TITLE:
             title = 1;
-            play_sound(w, LONGO_SND_PLACEHOLDER, 1);
+            events_sound(SND_PLACEHOLDER, 1);
             break;
         case LONGO_OBJ_TUTORIAL:
             tutorial_x = p->x;
@@ -481,14 +449,15 @@ static void update_buttons(SimWorld *w)
         for (int z = 0; z < b->box_zone_count && !pressed; z++) {
             uint16_t cell = b->box_zone[z];
             if (cell_solid(w, cell)) continue;
-            if (sim_box_at(w, cell)) pressed = 1;
+            if (box_index_at(cell) >= 0) pressed = 1;
         }
         for (int z = 0; z < b->zone_count && !pressed; z++) {
             uint16_t cell = b->zone[z];
             if (cell_solid(w, cell)) continue;
             {
                 int hi = hole_index_at(cell);
-                if ((hi >= 0 && !hole_is_full(hi)) || door_at(w, cell))
+                if ((hi >= 0 && !hole_is_full(hi)) || box_index_at(cell) >= 0 ||
+                    door_at(w, cell))
                     pressed = 1;
             }
             if (sim_part_at(w, cell) >= 0) pressed = 1;
@@ -496,10 +465,10 @@ static void update_buttons(SimWorld *w)
                 pressed = 1;
         }
         if (pressed && !b->pressed) {
-            play_sound(w, LONGO_SND_BUTTON, 0);
+            events_sound(SND_BUTTON, 0);
             w->buttons_pressed++;
         } else if (!pressed && b->pressed) {
-            play_sound(w, LONGO_SND_WRONG, 0);
+            events_sound(SND_WRONG, 0);
             w->buttons_pressed--;
         }
         b->pressed = pressed;
@@ -522,10 +491,11 @@ static void update_doors(SimWorld *w)
         if (d->open) {
             if (--d->open_timer <= 0) {
                 d->alive = 0;
-                sim_emit_fx(w, SIM_FX_SMOKE_BURST,
-                            (float)(sim_cell_x(d->cell) * SIM_CELL),
-                            (float)(sim_cell_y(d->cell) * SIM_CELL), 0, 7, 0);
-                play_sound(w, LONGO_SND_POOF, 0);
+                events_fx(FX_SMOKE_BURST,
+                          (float)(sim_cell_x(d->cell) * SIM_CELL),
+                          (float)(sim_cell_y(d->cell) * SIM_CELL), 0, 0, 0, 7,
+                          0);
+                events_sound(SND_POOF, 0);
             }
         }
     }
@@ -538,7 +508,7 @@ static void update_goal(SimWorld *w)
     if (w->dog.alive) goal->remain = w->dog.length - 2;
     if (goal->remain > 0) return;
     if (!goal->win_sound_played) {
-        play_sound(w, LONGO_SND_WIN, 0);
+        events_sound(SND_WIN, 0);
         goal->win_sound_played = 1;
     }
 }
@@ -620,8 +590,7 @@ static void update_transition(SimWorld *w)
 void sim_tick(SimWorld *w, const SimInput *input)
 {
     w->tick++;
-    w->sound_count = 0;
-    w->fx_count = 0;
+    events_clear();
 
     /* 1. dog step + pickups (oDog Step, then collision events) */
     sim_dog_step(w, input);
@@ -660,8 +629,9 @@ void sim_room_goto_next(SimWorld *w)
 
 void sim_room_restart(SimWorld *w) { sim_room_goto(w, w->room_index); }
 
-void sim_init(SimWorld *w, unsigned int seed)
+void sim_init(unsigned int seed)
 {
+    SimWorld *w = &game_world;
     memset(w, 0, sizeof(*w));
     w->rng = seed ? seed : 0x1234u;
     w->tick = 1;

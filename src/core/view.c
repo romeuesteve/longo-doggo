@@ -1,5 +1,8 @@
 #include "view.h"
 
+#include "../objects/box.h"
+#include "events.h"
+
 #include <math.h>
 #include <string.h>
 
@@ -129,9 +132,9 @@ static void snap_dog(Pres *p, const SimWorld *w)
         p->part_y[i] = (float)(sim_cell_y(cell) * SIM_CELL + 8);
         p->part_wiggle[i] = 0;
     }
-    for (int i = 0; i < w->box_count; i++) {
-        p->box_x[i] = (float)(sim_cell_x(w->boxes[i].cell) * SIM_CELL);
-        p->box_y[i] = (float)(sim_cell_y(w->boxes[i].cell) * SIM_CELL);
+    for (int i = 0; i < box_count(); i++) {
+        p->box_x[i] = (float)(sim_cell_x(box_cell(i)) * SIM_CELL);
+        p->box_y[i] = (float)(sim_cell_y(box_cell(i)) * SIM_CELL);
     }
 }
 
@@ -382,10 +385,10 @@ void pres_update(Pres *p, SimWorld *w, const SimInput *input)
     }
 
     /* box ease (0.25 like the original box lerp) */
-    for (int i = 0; i < w->box_count; i++) {
-        if (!w->boxes[i].alive) continue;
-        float tx = (float)(sim_cell_x(w->boxes[i].cell) * SIM_CELL);
-        float ty = (float)(sim_cell_y(w->boxes[i].cell) * SIM_CELL);
+    for (int i = 0; i < box_count(); i++) {
+        if (!box_alive(i)) continue;
+        float tx = (float)(sim_cell_x(box_cell(i)) * SIM_CELL);
+        float ty = (float)(sim_cell_y(box_cell(i)) * SIM_CELL);
         p->box_x[i] = f_lerp(p->box_x[i], tx, 0.25f);
         p->box_y[i] = f_lerp(p->box_y[i], ty, 0.25f);
     }
@@ -433,20 +436,20 @@ void pres_update(Pres *p, SimWorld *w, const SimInput *input)
     update_butterflies(p, w, input);
 
     /* consume the sim's fx events */
-    SimFx fx[SIM_MAX_FX];
-    int count = sim_poll_fx(w, fx);
+    FxEvent fx[EVENTS_MAX_FX];
+    int count = events_poll_fx(fx);
     for (int i = 0; i < count; i++) {
         switch (fx[i].kind) {
-        case SIM_FX_SMOKE_BURST:
+        case FX_SMOKE_BURST:
             spawn_smoke_burst(p, fx[i].x, fx[i].y, fx[i].count);
             break;
-        case SIM_FX_BARK:
+        case FX_BARK:
             spawn_bark(p, fx[i].x, fx[i].y, fx[i].angle);
             break;
-        case SIM_FX_ONE:
+        case FX_ONE:
             spawn_popup(p, fx[i].x, fx[i].y, fx[i].variant);
             break;
-        case SIM_FX_BOX_SINK:
+        case FX_BOX_SINK:
             spawn_sink(p, fx[i].x, fx[i].y, fx[i].tx, fx[i].ty);
             break;
         default:

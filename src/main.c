@@ -37,7 +37,7 @@ int main(void)
     }
 
     unsigned int seed = (unsigned int)GetRandomValue(0, 0x7fffffff);
-    sim_init(&front.world, seed);
+    sim_init(seed);
     pres_init(&front.pres, seed);
 
     while (!WindowShouldClose()) {
@@ -67,7 +67,7 @@ int main(void)
         /* any-key starts the game; exit key is disabled */
         if (IsKeyPressed(KEY_ESCAPE)) input.pressed_any = 0;
 
-        sim_tick(&front.world, &input);
+        sim_tick(world_ptr(), &input);
         pres_update(&front.pres, &front.world, &input);
         longo_render_dispatch_sounds(&front.render, &front.world);
         longo_render_frame(&front.render, &front.world, &front.pres);
