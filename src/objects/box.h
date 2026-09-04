@@ -24,4 +24,10 @@ int box_index_at(uint16_t cell); /* -1 when none */
  * Emits the push/poof sounds and the sink effect. */
 bool box_push(int index, uint16_t from_cell, int dir);
 
+/* View. */
+void box_view_tick(void);
+void box_draw(int shadow);
+float box_visual_x(int index);
+float box_visual_y(int index);
+
 #endif /* LONGO_OBJECT_BOX_H */

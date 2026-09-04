@@ -26,4 +26,7 @@ void transition_request_retry(void);
 void transition_request_next(void);
 void transition_count_win(void); /* room_num++ (label counts wins) */
 
+/* View. */
+void transition_draw(void); /* GUI layer */
+
 #endif /* LONGO_OBJECT_TRANSITION_H */

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../core/events.h"
+#include "../core/view.h"
 #include "../core/solid.h"
 #include "../core/world.h"
 
@@ -76,4 +77,57 @@ int door_index_at(uint16_t cell)
     for (int i = 0; i < door_cnt; i++)
         if (doors[i].alive && doors[i].cell == cell) return i;
     return -1;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* View: open squash (scale ease 0.1; the sim poofs after 14 ticks)    */
+/* ------------------------------------------------------------------ */
+
+typedef struct DoorView {
+    float scale_x, scale_y;
+    float x, y;
+} DoorView;
+
+static DoorView v_doors[DOOR_MAX];
+
+void door_view_tick(void)
+{
+    for (int i = 0; i < door_cnt; i++) {
+        DoorView *v = &v_doors[i];
+        if (!doors[i].alive) continue;
+        if (!doors[i].open) {
+            v->scale_x = v->scale_y = 1.0f;
+            v->x = (float)(sim_cell_x(doors[i].cell) * SIM_CELL);
+            v->y = (float)(sim_cell_y(doors[i].cell) * SIM_CELL);
+            continue;
+        }
+        v->scale_x += (1.2f - v->scale_x) * 0.1f;
+        v->scale_y += (0.8f - v->scale_y) * 0.1f;
+        float sw = 16.0f * v->scale_x;
+        float sh = 16.0f * v->scale_y;
+        v->x = (float)(sim_cell_x(doors[i].cell) * SIM_CELL) -
+               (sw * (v->scale_x - 1.0f)) / 2.0f;
+        v->y = (float)(sim_cell_y(doors[i].cell) * SIM_CELL) -
+               sh * (v->scale_y - 1.0f);
+    }
+}
+
+void door_draw(int shadow)
+{
+    view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
+    ViewColor tint = shadow ? view_rgb(0, 0, 0) : view_rgb(255, 255, 255);
+    for (int i = 0; i < door_cnt; i++) {
+        if (!doors[i].alive) continue;
+        if (shadow) {
+            view_sprite(0, i, LONGO_SPR_DOOR, 0,
+                        (float)(sim_cell_x(doors[i].cell) * SIM_CELL),
+                        (float)(sim_cell_y(doors[i].cell) * SIM_CELL + 22.0f),
+                        1.0f, -0.4f, 0.0f, tint, 1.0f);
+        } else {
+            view_sprite(100, i, LONGO_SPR_DOOR, 0, v_doors[i].x, v_doors[i].y,
+                        v_doors[i].scale_x, v_doors[i].scale_y, 0.0f, tint,
+                        1.0f);
+        }
+    }
 }

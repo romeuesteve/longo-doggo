@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "../core/events.h"
+#include "../core/view.h"
 #include "../core/solid.h"
 #include "box.h"
 #include "house.h"
@@ -319,4 +320,177 @@ void dog_tick(const SimInput *input)
     }
 
     resolve_pickups();
+}
+
+/* ------------------------------------------------------------------ */
+/* View: eased positions, legs wiggle, vector body and head sprite     */
+/* ------------------------------------------------------------------ */
+
+static float v_dog_x, v_dog_y;
+static float v_part_x[DOG_MAX_CHAIN], v_part_y[DOG_MAX_CHAIN];
+static uint16_t v_part_cell[DOG_MAX_CHAIN];
+static int v_wiggle[DOG_MAX_CHAIN];
+
+static float f_lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+static float point_direction(float x1, float y1, float x2, float y2)
+{
+    float dir = atan2f(-(y2 - y1), x2 - x1) * (180.0f / 3.14159265f);
+    if (dir < 0.0f) dir += 360.0f;
+    return dir;
+}
+
+static float len_dir_x(float len, float dir)
+{
+    return cosf(dir * (3.14159265f / 180.0f)) * len;
+}
+
+static float len_dir_y(float len, float dir)
+{
+    return -sinf(dir * (3.14159265f / 180.0f)) * len;
+}
+
+void dog_view_tick(void)
+{
+    /* the original xx/yy lerp, now the only interpolation path; targets
+     * are sprite centres (cell top-left + 8), like the old instances */
+    float tx = (float)(dog.cx * SIM_CELL + 8);
+    float ty = (float)(dog.cy * SIM_CELL + 8);
+    if (dog.alive) {
+        v_dog_x = f_lerp(v_dog_x, tx, 0.2f);
+        v_dog_y = f_lerp(v_dog_y, ty, 0.2f);
+    }
+    for (int i = 0; i < dog.length; i++) {
+        uint16_t cell = dog.chain[i];
+        float ptx = (float)(sim_cell_x(cell) * SIM_CELL + 8);
+        float pty = (float)(sim_cell_y(cell) * SIM_CELL + 8);
+        if (v_wiggle[i] > 0) v_wiggle[i]--;
+        if (v_part_cell[i] != cell) {
+            v_part_cell[i] = cell;
+            v_wiggle[i] = 15; /* legs_angle = 30, alarm0 = 15 */
+        }
+        v_part_x[i] = f_lerp(v_part_x[i], ptx, 0.2f);
+        v_part_y[i] = f_lerp(v_part_y[i], pty, 0.2f);
+    }
+}
+
+float dog_visual_x(void) { return v_dog_x; }
+float dog_visual_y(void) { return v_dog_y; }
+
+static float legs_angle(int part)
+{
+    return v_wiggle[part] > 0 ? 30.0f : 0.0f;
+}
+
+static void draw_body(bool shadow)
+{
+    const ViewColor body = view_rgb(153, 108, 53);
+    const ViewColor outline = view_rgb(107, 61, 49);
+    const ViewColor black = view_rgb(0, 0, 0);
+    int layer_depth = shadow ? 0 : 0;
+    int order = 0;
+    float wave = longo_wave(-legs_angle(0), legs_angle(0), 0.2f, 0,
+                            view_time_ms());
+
+    /* pass 1: legs, outline body, outline head circle */
+    for (int i = 0; i < dog.length; i++) {
+        float px = v_part_x[i];
+        float py = v_part_y[i];
+        float fx = i == 0 ? v_dog_x : v_part_x[i - 1];
+        float fy = i == 0 ? v_dog_y : v_part_y[i - 1];
+        bool is_first = (dog.pflag[i] & DOG_PART_FIRST) != 0;
+        bool legs = (dog.pflag[i] & DOG_PART_LEGS) != 0;
+        (void)wave;
+        float amp = legs_angle(i);
+        float legs_wave = longo_wave(-amp, amp, 0.2f, 0, view_time_ms());
+        if (legs) {
+            float dir = (point_direction(px, py, fx, fy) - 90.0f) +
+                        (180.0f * is_first);
+            float leglength = 6.0f + (is_first ? 3.0f : 0.0f);
+            for (int leg = 0; leg < 2; leg++) {
+                float angle = (leg == 0 ? -45.0f : 225.0f) + legs_wave + dir;
+                if (shadow) {
+                    view_line(layer_depth, order++, px, py + 5.0f,
+                              px + len_dir_x(leglength, angle),
+                              py + 5.0f + len_dir_y(leglength, angle), 2.0f,
+                              black, black);
+                    view_circle(layer_depth, order++,
+                                px + len_dir_x(leglength, angle),
+                                py + 5.0f + len_dir_y(leglength, angle), 3.0f,
+                                black, black);
+                } else {
+                    view_line(layer_depth, order++, px, py,
+                              px + len_dir_x(leglength, angle),
+                              py + len_dir_y(leglength, angle), 2.0f, outline,
+                              body);
+                    view_circle(layer_depth, order++,
+                                px + len_dir_x(leglength, angle),
+                                py + len_dir_y(leglength, angle), 3.0f, body,
+                                outline);
+                }
+            }
+        }
+        if (shadow) {
+            view_circle(layer_depth, order++, px - 1.0f, py + 4.0f, 5.0f,
+                        black, black);
+            view_line(layer_depth, order++, px - 1.0f, py + 4.0f, fx - 1.0f,
+                      fy + 4.0f, 10.0f, black, black);
+        } else {
+            view_circle(layer_depth, order++, px - 1.0f, py - 1.0f, 5.0f,
+                        outline, outline);
+            view_line(layer_depth, order++, px - 1.0f, py - 1.0f, fx - 1.0f,
+                      fy - 1.0f, 10.0f, outline, outline);
+            if (is_first)
+                view_circle(layer_depth, order++, v_dog_x, v_dog_y - 1.0f,
+                            5.0f, outline, outline);
+        }
+    }
+
+    /* pass 2: fill body and tail sprite */
+    if (!shadow) {
+        for (int i = 0; i < dog.length; i++) {
+            float px = v_part_x[i];
+            float py = v_part_y[i];
+            float fx = i == 0 ? v_dog_x : v_part_x[i - 1];
+            float fy = i == 0 ? v_dog_y : v_part_y[i - 1];
+            bool legs = (dog.pflag[i] & DOG_PART_LEGS) != 0;
+            view_circle(layer_depth, order++, px - 1.0f, py - 1.0f, 4.0f,
+                        body, body);
+            view_line(layer_depth, order++, px - 1.0f, py - 1.0f, fx - 1.0f,
+                      fy - 1.0f, 8.0f, body, body);
+            if (legs && !(dog.pflag[i] & DOG_PART_FIRST)) {
+                int tail_frame = (int)view_flower_clock() % 4;
+                view_sprite(layer_depth, order++, LONGO_SPR_DOGTAIL,
+                            tail_frame, px - 1.0f, py - 3.0f, 1.0f, 1.0f,
+                            0.0f, view_rgb(255, 255, 255), 1.0f);
+            }
+        }
+        int face = (int)view_flower_clock() % 4;
+        LongoSprite spr = LONGO_SPR_DOGUP;
+        switch (dog.dir) {
+        case 0: spr = LONGO_SPR_DOGDOWN; break;
+        case 90: spr = LONGO_SPR_DOGRIGHT; break;
+        case 180: spr = LONGO_SPR_DOGUP; break;
+        default: spr = LONGO_SPR_DOGLEFT; break;
+        }
+        view_sprite(layer_depth, order++, spr, face, v_dog_x, v_dog_y, 1.0f,
+                    1.0f, 0.0f, view_rgb(255, 255, 255), 1.0f);
+    } else {
+        int face = (int)view_flower_clock() % 4;
+        LongoSprite spr = LONGO_SPR_DOGUP;
+        switch (dog.dir) {
+        case 0: spr = LONGO_SPR_DOGDOWN; break;
+        case 90: spr = LONGO_SPR_DOGRIGHT; break;
+        case 180: spr = LONGO_SPR_DOGUP; break;
+        default: spr = LONGO_SPR_DOGLEFT; break;
+        }
+        view_sprite(layer_depth, order++, spr, face, v_dog_x, v_dog_y + 5.0f,
+                    1.0f, 1.0f, 0.0f, black, 1.0f);
+    }
+}
+
+void dog_draw(int shadow)
+{
+    view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
+    draw_body(shadow);
 }

@@ -29,4 +29,8 @@ const Dbox *dialogue_box(int index);
 float dialogue_base_scale(void);
 bool dialogue_released(void);
 
+/* View. */
+void dialogue_view_tick(void);
+void dialogue_draw(void); /* GUI layer */
+
 #endif /* LONGO_OBJECT_DIALOGUE_H */

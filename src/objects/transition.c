@@ -1,6 +1,9 @@
 #include "transition.h"
 
+#include <stdio.h>
+
 #include "../core/world.h"
+#include "../core/view.h"
 
 static TransitionState tr;
 
@@ -72,5 +75,50 @@ void transition_tick(void)
     } else {
         tr.x = 304.0f;
         tr.text_y = -16.0f;
+    }
+}
+
+
+/* ------------------------------------------------------------------ */
+/* View: the level wipe + "LEVEL N" label (Draw GUI pass)              */
+/* ------------------------------------------------------------------ */
+
+void transition_draw(void)
+{
+    if (!tr.active) return;
+    view_layer(VIEW_GUI);
+    ViewColor color2 = view_rgb(113 - 10, 153 - 10, 61 - 10);
+    ViewColor color = view_rgb(141 - 10, 199 - 10, 63 - 10);
+
+    if (tr.open) {
+        for (int i = 0; i < 4; i++) {
+            view_sprite(2, i * 2, LONGO_SPR_TRANSITION, 0, tr.x,
+                        (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f, color2,
+                        1.0f);
+            view_sprite(2, i * 2 + 1, LONGO_SPR_TRANSITION, 0, tr.x,
+                        (float)(i * 64), 1.0f, 1.0f, 0.0f, color, 1.0f);
+        }
+        if (tr.x + 32.0f > 0.0f)
+            view_rect(1, 0, tr.x + 32.0f, 0.0f, 304.0f - (tr.x + 32.0f),
+                      208.0f, color);
+    } else if (tr.close) {
+        for (int i = 0; i < 4; i++) {
+            view_sprite(2, i * 2, LONGO_SPR_TRANSITION, 1, tr.x,
+                        (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f, color2,
+                        1.0f);
+            view_sprite(2, i * 2 + 1, LONGO_SPR_TRANSITION, 1, tr.x,
+                        (float)(i * 64), 1.0f, 1.0f, 0.0f, color, 1.0f);
+        }
+        if (tr.x + 32.0f > 0.0f)
+            view_rect(1, 0, 0.0f, 0.0f, tr.x + 32.0f, 208.0f, color);
+    }
+
+    if (tr.room_num <= 7 && (tr.open || tr.close)) {
+        char text[128];
+        snprintf(text, sizeof(text), "LEVEL %d", tr.room_num);
+        view_text(0, 0, 0, text, 142.0f, tr.text_y + 2.0f, 1.0f,
+                  view_rgb(0, 128, 0));
+        view_text(0, 1, 0, text, 140.0f, tr.text_y, 1.0f,
+                  view_rgb(255, 255, 255));
     }
 }

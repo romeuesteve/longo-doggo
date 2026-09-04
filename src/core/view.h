@@ -1,125 +1,103 @@
 /*
- * Presentation state: everything floaty and visual.
+ * View kernel: the shared drawing vocabulary between the object scripts
+ * and the render backend.
  *
- * The simulation snaps positions to cells; this module eases sprite
- * positions toward those cells (the original xx/yy lerp, promoted to the
- * only interpolation path), advances animation clocks, runs cosmetic
- * particles (smoke, popups, barks, box sinks), the door/goal/dialogue
- * scale animations, the title/title waves, and ambient butterflies.
- *
- * pres_update() runs once per rendered frame (60 Hz vsynced, matching the
- * original tick-coupled easing constants).
+ * Object scripts push draw items (sprites, lines, circles, text, rects)
+ * tagged with depth + order into one of three layers (shadow surface,
+ * world, GUI); the backend sorts each layer by depth and replays the
+ * items with raylib.  The kernel also owns the shared animation clocks
+ * and the frame time (all easing runs at a fixed 60 Hz, matching the
+ * original tick-coupled lerp constants).
  */
-#ifndef LONGO_PRES_H
-#define LONGO_PRES_H
+#ifndef LONGO_VIEW_H
+#define LONGO_VIEW_H
 
-#include "world.h"
+#include <stdbool.h>
+#include <stdint.h>
 
-#define PRES_MAX_PARTS 64 /* mirrors DOG_MAX_CHAIN */
-#define PRES_MAX_DOORS 8 /* mirrors DOOR_MAX */
-#define PRES_MAX_BOXES 32 /* mirrors BOX_MAX */
-#define PRES_MAX_FLOWERS 64
-#define PRES_MAX_FLIES 8
-#define PRES_MAX_SMOKE 160
-#define PRES_MAX_POPUPS 16
-#define PRES_MAX_BARKS 8
-#define PRES_MAX_SINKS 8
+#include "../sprites.h"
 
-typedef struct PresSmoke {
-    int alive;
-    float x, y;
-    float dir;   /* motion direction, degrees */
-    float speed;
-    float angle; /* sprite rotation */
-    float spin;  /* degrees per tick */
-    float scale; /* image_xscale == image_yscale */
-} PresSmoke;
+#define VIEW_MAX_ITEMS 512
 
-typedef struct PresPopup {
-    int alive;
-    float x, y;
+typedef enum ViewLayer {
+    VIEW_SHADOW = 0, /* global.shadow_surf, composited at 0.2 alpha */
+    VIEW_WORLD,      /* application surface (depth-sorted) */
+    VIEW_GUI         /* GUI surface: bloom composite + dialogue/wipes */
+} ViewLayer;
+
+typedef struct ViewColor {
+    uint8_t r, g, b, a;
+} ViewColor;
+
+typedef enum ViewItemKind {
+    VIEW_ITEM_SPRITE,
+    VIEW_ITEM_SPRITE_PART,
+    VIEW_ITEM_LINE,
+    VIEW_ITEM_CIRCLE,
+    VIEW_ITEM_RECT,
+    VIEW_ITEM_TEXT,
+    VIEW_ITEM_TEXT_WRAPPED,
+    VIEW_ITEM_SHADOW_COMPOSITE,
+    VIEW_ITEM_TILE_LAYERS /* background + tile layers (index: 0 bg, 1, 2) */
+} ViewItemKind;
+
+typedef struct ViewItem {
+    ViewItemKind kind;
+    int depth;
+    int order;
+    LongoSprite sprite;
+    int frame;
+    float x, y;   /* position / line start / rect origin */
+    float x2, y2; /* line end */
+    float w, h;   /* sprite-part source size / rect size */
+    float xscale, yscale;
+    float rotation;
     float alpha;
-    int variant; /* sprOne frame */
-} PresPopup;
+    float radius;
+    ViewColor color;  /* primary (line gradient start, circle top) */
+    ViewColor color2; /* secondary (line gradient end, circle bottom) */
+    char text[160];   /* text items */
+    int font_id;      /* 0 bold, 1 regular, 2 digits */
+    float text_width; /* wrap width */
+    float line_sep;   /* line separation for wrapped text */
+} ViewItem;
 
-typedef struct PresBark {
-    int alive;
-    float x, y;
-    float angle;
-    float frame;
-} PresBark;
+void view_begin_frame(void);      /* clears all layers, advances time */
+void view_layer(ViewLayer layer); /* selects the push target */
+void view_sort(void);             /* depth-sort every layer */
 
-typedef struct PresSink {
-    int alive;
-    float x, y;
-    float tx, ty;
-} PresSink;
+const ViewItem *view_items(ViewLayer layer, int *count);
 
-typedef struct PresButterfly {
-    int alive;
-    float x, y;
-    float xstart, ystart;
-    float hspd, vspd;
-    float dir;
-    int timer;
-} PresButterfly;
+/* Animation clocks (image_index += fps / 60 per frame). */
+float view_flower_clock(void);
+float view_apple_clock(void);
+float view_pear_clock(void);
+float view_fly_clock(void);
+float view_button_clock(void);
+double view_time_ms(void);
 
-typedef struct PresDoor {
-    float scale_x, scale_y; /* eased open squash */
-    float x, y;             /* shifted draw position */
-} PresDoor;
+/* Draw pushers (into the current layer). */
+void view_sprite(int depth, int order, LongoSprite sprite, int frame, float x,
+                 float y, float xscale, float yscale, float rotation,
+                 ViewColor tint, float alpha);
+void view_sprite_part(int depth, int order, LongoSprite sprite, int frame,
+                      int src_x, int src_y, int src_w, int src_h, float x,
+                      float y, float xscale, float yscale, ViewColor tint,
+                      float alpha);
+void view_line(int depth, int order, float x1, float y1, float x2, float y2,
+               float width, ViewColor c1, ViewColor c2);
+void view_circle(int depth, int order, float x, float y, float radius,
+                 ViewColor c1, ViewColor c2);
+void view_rect(int depth, int order, float x, float y, float w, float h,
+               ViewColor color);
+void view_text(int depth, int order, int font_id, const char *text, float x,
+               float y, float scale, ViewColor color);
+void view_text_wrapped(int depth, int order, int font_id, const char *text,
+                       float x, float y, float line_sep, float width,
+                       float scale, ViewColor color);
+void view_shadow_composite(int depth, int order);
+void view_tile_layers(int depth, int order, int index);
 
-typedef struct Pres {
-    const LongoRoom *room; /* decor scan cache; snaps when the room changes */
-    unsigned int rng;
-    float time_ms;
+ViewColor view_rgb(int r, int g, int b);
 
-    /* eased positions (pixels; dog/parts are sprite centres, cell + 8) */
-    float dog_x, dog_y;
-    float part_x[PRES_MAX_PARTS], part_y[PRES_MAX_PARTS];
-    uint16_t part_cell[PRES_MAX_PARTS];
-    int part_wiggle[PRES_MAX_PARTS];
-    float box_x[PRES_MAX_BOXES], box_y[PRES_MAX_BOXES];
-
-    PresDoor doors[PRES_MAX_DOORS];
-
-    /* goal house pulse (oGoalUp count/count2 port) */
-    int goal_count, goal_count2;
-    float goal_scale_x, goal_scale_y;
-
-    /* dialogue box scale */
-    float dlg_scale_x, dlg_scale_y;
-
-    /* animation clocks (image_index += fps / 60 per frame) */
-    float flower_clock;
-    float apple_clock;
-    float pear_clock;
-    float fly_clock;
-    float button_clock;
-    float block_clock;
-
-    PresSmoke smoke[PRES_MAX_SMOKE];
-    int smoke_count;
-    PresPopup popups[PRES_MAX_POPUPS];
-    int popup_count;
-    PresBark barks[PRES_MAX_BARKS];
-    int bark_count;
-    PresSink sinks[PRES_MAX_SINKS];
-    int sink_count;
-
-    PresButterfly flies[PRES_MAX_FLIES];
-    struct { float x, y; } flowers[PRES_MAX_FLOWERS];
-    int flower_count;
-    int shadows_present;
-    float title_x, title_y;
-    int has_title_decor;
-} Pres;
-
-void pres_init(Pres *p, unsigned int seed);
-/* Ease toward the sim state and run particles; consumes the sim fx queue. */
-void pres_update(Pres *p, SimWorld *w, const SimInput *input);
-
-/* Legs wiggle amplitude for a part: 30 while the wiggle timer runs. */
-float pres_part_legs_angle(const Pres *p, int part);
-
-#endif /* LONGO_PRES_H */
+#endif /* LONGO_VIEW_H */

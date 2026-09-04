@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../core/world.h"
+#include "../core/view.h"
 #include "dog.h"
 #include "items.h"
 #include "transition.h"
@@ -143,3 +144,45 @@ const Dbox *dialogue_box(int index)
 
 float dialogue_base_scale(void) { return dlg.base_scale; }
 bool dialogue_released(void) { return dlg.release_ticks >= 0; }
+
+
+/* ------------------------------------------------------------------ */
+/* View: box pop-in scale + Draw GUI pass                              */
+/* ------------------------------------------------------------------ */
+
+static float v_scale_x = 1.0f, v_scale_y = 1.0f;
+
+void dialogue_view_tick(void)
+{
+    if (!dlg.active) return;
+    const SimInput *input = &world_ptr()->input;
+    float target = dlg.release_ticks >= 0 ? 0.6f : dlg.base_scale;
+    bool advance =
+        (input->pressed_space || input->pressed_enter || input->pressed_e) &&
+        !transition_closing();
+    if (advance && dlg.release_ticks < 0)
+        v_scale_x = v_scale_y = 0.5f; /* press bounce */
+    v_scale_x += (target - v_scale_x) * 0.15f;
+    v_scale_y += (target - v_scale_y) * 0.15f;
+}
+
+void dialogue_draw(void)
+{
+    if (!dlg.active) return;
+    view_layer(VIEW_GUI);
+    int index = dlg.index;
+    if (index < 0) index = 0;
+    if (index >= DIALOGUE_MAX_BOXES) index = DIALOGUE_MAX_BOXES - 1;
+    const Dbox *box = &dlg.box[index];
+    if (box->text == NULL) return;
+    float wave = longo_wave(0, 2, 2, 0, view_time_ms());
+
+    view_sprite(1, 0, LONGO_SPR_DIALOGUEBOX, 0, box->x, box->y + wave,
+                v_scale_x, v_scale_y, 0.0f, view_rgb(255, 255, 255), 1.0f);
+    float scale = v_scale_y * 0.3f;
+    float width = 30.0f * dlg.base_scale;
+    view_text_wrapped(0, 1, 1, box->text, box->x + 0.5f, box->y + wave + 0.5f,
+                      12.0f, width, scale, view_rgb(255, 196, 101));
+    view_text_wrapped(0, 2, 1, box->text, box->x, box->y + wave, 12.0f, width,
+                      scale, view_rgb(84, 64, 32));
+}

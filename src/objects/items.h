@@ -27,4 +27,7 @@ uint16_t skull_cell(int index);
 int skull_index_at(uint16_t cell); /* -1 when none */
 void skull_consume(int index);
 
+/* View. */
+void items_draw(int shadow);
+
 #endif /* LONGO_OBJECT_ITEMS_H */

@@ -5,6 +5,7 @@
  * translated from bbox probes to cell lookups (see docs/architecture.md).
  */
 #include "world.h"
+#include "../room_tiles.h"
 
 #include "../objects/button.h"
 #include "../objects/box.h"
@@ -17,6 +18,11 @@
 #include "../objects/items.h"
 #include "../objects/hole.h"
 #include "events.h"
+#include "view.h"
+
+#include "../objects/butterfly.h"
+#include "../objects/flower.h"
+#include "../objects/fx.h"
 #include "solid.h"
 
 #include <math.h>
@@ -166,6 +172,9 @@ static void load_room(SimWorld *w, int room_index)
     door_reset();
     title_reset();
     dialogue_reset();
+    flower_reset();
+    butterfly_reset();
+    w->shadows_present = 0;
 
     for (int i = 0; i < room->instance_count; i++) {
         const LongoRoomInstance *p = &room->instances[i];
@@ -255,9 +264,18 @@ static void load_room(SimWorld *w, int room_index)
             tutorial_x = p->x;
             have_tutorial = 1;
             break;
+        case LONGO_OBJ_FLOWER:
+            flower_place(p->x, p->y);
+            break;
+        case LONGO_OBJ_BUTTERFLY:
+            butterfly_place(p->x, p->y);
+            break;
+        case LONGO_OBJ_SHADOWS:
+            w->shadows_present = 1;
+            break;
         default:
-            /* FLOWER, SHADOWS, BUTTERFLY, BLOOM, POSTEFFECTS: presentation
-             * decor.  MOUSE/DOGSPAWNER: the editor room is dropped. */
+            /* BLOOM, POSTEFFECTS: render-side passes.  MOUSE/DOGSPAWNER:
+             * the editor room is dropped. */
             break;
         }
     }
@@ -304,6 +322,64 @@ void sim_tick(SimWorld *w, const SimInput *input)
     /* 5. dialogue (the original skipped instances born this tick, so skip
      * if the room just changed) */
     if (w->room_loaded_tick != w->tick) dialogue_tick();
+}
+
+/* ------------------------------------------------------------------ */
+/* View orchestration                                                  */
+/* ------------------------------------------------------------------ */
+
+void world_view_tick(const SimInput *input)
+{
+    dog_view_tick();
+    box_view_tick();
+    door_view_tick();
+    house_view_tick();
+    dialogue_view_tick();
+    butterfly_tick(input);
+    fx_tick();
+}
+
+void world_draw(void)
+{
+    view_begin_frame();
+
+    /* shadow surface: everything casts its shadow first */
+    view_layer(VIEW_SHADOW);
+    dog_draw(1);
+    box_draw(1);
+    door_draw(1);
+    button_draw(1);
+    items_draw(1);
+    house_draw(1);
+    butterfly_draw(1);
+    title_draw(1);
+
+    /* application surface: background, tile layers, shadow composite and
+     * the entities in depth order */
+    view_layer(VIEW_WORLD);
+    view_tile_layers(700, 0, 0); /* sprTile background */
+    const LongoRoomTileMap *tiles = room_tiles_for(game_world.room);
+    if (tiles != NULL) {
+        view_tile_layers(tiles->tiles_1.depth, 1, 1);
+        view_tile_layers(tiles->tiles_3.depth, 2, 2);
+    }
+    if (game_world.shadows_present && dog_alive())
+        view_shadow_composite(210, 0);
+    dog_draw(0);
+    box_draw(0);
+    door_draw(0);
+    button_draw(0);
+    items_draw(0);
+    house_draw(0);
+    flower_draw(0);
+    butterfly_draw(0);
+    title_draw(0);
+    fx_draw();
+
+    /* GUI surface: dialogue boxes and level wipes */
+    view_layer(VIEW_GUI);
+    dialogue_draw();
+    transition_draw();
 }
 
 /* ------------------------------------------------------------------ */

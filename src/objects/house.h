@@ -32,4 +32,8 @@ uint16_t house_win_zone_cell(int index); /* test/render readback */
 
 bool house_try_win(uint16_t head_cell);
 
+/* View. */
+void house_view_tick(void);
+void house_draw(int shadow);
+
 #endif /* LONGO_OBJECT_HOUSE_H */

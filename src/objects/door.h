@@ -20,4 +20,8 @@ bool door_open(int index);
 uint16_t door_cell(int index);
 int door_index_at(uint16_t cell); /* -1 when none */
 
+/* View. */
+void door_view_tick(void);
+void door_draw(int shadow);
+
 #endif /* LONGO_OBJECT_DOOR_H */

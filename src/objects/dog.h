@@ -40,6 +40,13 @@ bool dog_part_is_solid(int part); /* butt parts block; the tail does not */
 bool dog_strain(void);
 uint16_t dog_detached_cell(void); /* cell the tail last vacated */
 
+/* View: easing tick (60 Hz) and draws.  shadow selects the shadow-surface
+ * pass; both reproduce the original oDog/oDogPart Draw events. */
+void dog_view_tick(void);
+void dog_draw(int shadow);
+float dog_visual_x(void);
+float dog_visual_y(void);
+
 /* Test/placement hooks. */
 void dog_teleport(int cx, int cy);
 void dog_set_alive(bool alive); /* test hook: despawn/respawn in place */

@@ -51,6 +51,7 @@ typedef struct SimWorld {
     int cells_w, cells_h;
     long tick;
     long room_loaded_tick; /* guards same-tick meta steps after a reload */
+    int shadows_present;   /* the room has an oShadows instance */
 
 
     unsigned int rng;
@@ -63,6 +64,10 @@ void sim_room_goto_next(SimWorld *w);
 void sim_room_restart(SimWorld *w);
 
 void sim_tick(SimWorld *w, const SimInput *input);
+
+/* View orchestration: easing ticks then draw-item push, in one place. */
+void world_view_tick(const SimInput *input);
+void world_draw(void);
 
 bool cell_in_bounds(int cx, int cy);
 uint16_t cell_neighbour(uint16_t cell, int dir);

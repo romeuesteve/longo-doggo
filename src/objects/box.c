@@ -3,8 +3,10 @@
 #include <string.h>
 
 #include "../core/events.h"
+#include "../core/view.h"
 #include "../core/solid.h"
 #include "../core/world.h"
+#include "../objects/dog.h"
 #include "hole.h"
 
 typedef struct Box {
@@ -83,4 +85,42 @@ bool box_push(int index, uint16_t from_cell, int dir)
     solid_place(beyond, SOLID_BOX, index);
     events_sound(SND_PUSHED, 0);
     return true;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* View: eased position (the original 0.25 box lerp)                   */
+/* ------------------------------------------------------------------ */
+
+static float v_box_x[BOX_MAX], v_box_y[BOX_MAX];
+
+float box_visual_x(int index) { return v_box_x[index]; }
+float box_visual_y(int index) { return v_box_y[index]; }
+
+void box_view_tick(void)
+{
+    for (int i = 0; i < box_cnt; i++) {
+        if (!boxes[i].alive) continue;
+        float tx = (float)(sim_cell_x(boxes[i].cell) * SIM_CELL);
+        float ty = (float)(sim_cell_y(boxes[i].cell) * SIM_CELL);
+        v_box_x[i] += (tx - v_box_x[i]) * 0.25f;
+        v_box_y[i] += (ty - v_box_y[i]) * 0.25f;
+    }
+}
+
+void box_draw(int shadow)
+{
+    view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
+    ViewColor tint = shadow ? view_rgb(0, 0, 0) : view_rgb(255, 255, 255);
+    for (int i = 0; i < box_cnt; i++) {
+        if (!boxes[i].alive) continue;
+        if (shadow) {
+            view_sprite(0, i, LONGO_SPR_BOX, 0, v_box_x[i], v_box_y[i] + 5.0f,
+                        1.0f, 1.0f, 0.0f, tint, 1.0f);
+        } else {
+            /* dynamic depth like the original: -100 - y / 6 */
+            view_sprite((int)(-100 - v_box_y[i] / 6), i, LONGO_SPR_BOX, 0,
+                        v_box_x[i], v_box_y[i], 1.0f, 1.0f, 0.0f, tint, 1.0f);
+        }
+    }
 }

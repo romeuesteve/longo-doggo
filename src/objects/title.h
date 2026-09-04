@@ -12,4 +12,7 @@ void title_tick(void);  /* any key -> next-level wipe */
 
 bool title_present(void);
 
+/* View. */
+void title_draw(int shadow);
+
 #endif /* LONGO_OBJECT_TITLE_H */

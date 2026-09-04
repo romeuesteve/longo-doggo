@@ -3,6 +3,8 @@
 #include <string.h>
 
 #include "../core/events.h"
+#include "../core/view.h"
+#include "../core/world.h"
 #include "../core/solid.h"
 
 typedef struct Button {
@@ -81,4 +83,30 @@ uint16_t button_zone_cell(int index, int cell_i)
 uint16_t button_box_zone_cell(int index, int cell_i)
 {
     return buttons[index].box_zone[cell_i];
+}
+
+
+/* ------------------------------------------------------------------ */
+/* View                                                                */
+/* ------------------------------------------------------------------ */
+
+void button_draw(int shadow)
+{
+    view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
+    ViewColor tint = shadow ? view_rgb(0, 0, 0) : view_rgb(255, 255, 255);
+    for (int i = 0; i < button_cnt; i++) {
+        if (!buttons[i].alive) continue;
+        float x = (float)(sim_cell_x(buttons[i].zone[0]) * 16);
+        float y = (float)(sim_cell_y(buttons[i].zone[0]) * 16);
+        int pressed_sprite = buttons[i].pressed ? 1 : 0;
+        if (shadow) {
+            view_sprite(0, i, pressed_sprite ? LONGO_SPR_BUTTONPRESSED
+                                             : LONGO_SPR_BUTTON,
+                        0, x, y + 4.0f, 1.0f, 1.0f, 0.0f, tint, 1.0f);
+        } else {
+            view_sprite(200, i, pressed_sprite ? LONGO_SPR_BUTTONPRESSED
+                                               : LONGO_SPR_BUTTON,
+                        0, x, y, 1.0f, 1.0f, 0.0f, tint, 1.0f);
+        }
+    }
 }

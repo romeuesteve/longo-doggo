@@ -77,10 +77,9 @@ typedef struct LongoRender {
 bool longo_render_init(LongoRender *render, const char *asset_root);
 void longo_render_shutdown(LongoRender *render);
 
-/* Full GameMaker draw phase: application surface, GUI pass and present.
- * Reads the simulation state plus the presentation's eased visuals. */
-void longo_render_frame(LongoRender *render, const SimWorld *world,
-                        const Pres *pres);
+/* Full GameMaker draw phase: shadow surface, application surface, bloom
+ * and GUI pass.  Replays the view items the object scripts pushed. */
+void longo_render_frame(LongoRender *render, const SimWorld *world);
 
 /* Audio dispatch for the sounds the simulation queued this tick. */
 void longo_render_dispatch_sounds(LongoRender *render, SimWorld *world);

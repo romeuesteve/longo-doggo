@@ -2,6 +2,9 @@
 
 #include <string.h>
 
+#include "../core/view.h"
+#include "../core/world.h"
+
 typedef struct Item {
     bool alive;
     uint16_t cell;
@@ -68,4 +71,40 @@ int skull_index_at(uint16_t cell)
 void skull_consume(int index)
 {
     if (index >= 0 && index < skull_cnt) skulls[index].alive = false;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* View                                                                */
+/* ------------------------------------------------------------------ */
+
+void items_draw(int shadow)
+{
+    view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
+    ViewColor white = view_rgb(255, 255, 255);
+    ViewColor black = view_rgb(0, 0, 0);
+    int apple_frame = (int)view_apple_clock() % 8;
+    int pear_frame = (int)view_pear_clock() % 8;
+    for (int i = 0; i < apple_cnt; i++) {
+        if (!apples[i].alive) continue;
+        float x = (float)(sim_cell_x(apples[i].cell) * 16);
+        float y = (float)(sim_cell_y(apples[i].cell) * 16);
+        if (shadow)
+            view_sprite(0, i, LONGO_SPR_APPLE, apple_frame, x, y + 7.0f,
+                        1.0f, 0.6f, 0.0f, black, 1.0f);
+        else
+            view_sprite(100, i, LONGO_SPR_APPLE, apple_frame, x, y, 1.0f,
+                        1.0f, 0.0f, white, 1.0f);
+    }
+    for (int i = 0; i < skull_cnt; i++) {
+        if (!skulls[i].alive) continue;
+        float x = (float)(sim_cell_x(skulls[i].cell) * 16);
+        float y = (float)(sim_cell_y(skulls[i].cell) * 16);
+        if (shadow)
+            view_sprite(0, i, LONGO_SPR_SKULL, pear_frame % 4, x, y + 7.0f,
+                        1.0f, 0.6f, 0.0f, black, 1.0f);
+        else
+            view_sprite(100, i, LONGO_SPR_SKULL, pear_frame % 4, x, y, 1.0f,
+                        1.0f, 0.0f, white, 1.0f);
+    }
 }

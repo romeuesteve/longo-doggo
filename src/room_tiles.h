@@ -50,4 +50,8 @@ typedef struct LongoRoomTileMap {
 
 extern const LongoRoomTileMap longo_room_tile_maps[LONGO_ROOM_TILE_COUNT];
 
+/* Tile map for a room by name (NULL when the room has none). */
+struct LongoRoom;
+const LongoRoomTileMap *room_tiles_for(const struct LongoRoom *room);
+
 #endif

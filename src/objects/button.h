@@ -27,4 +27,7 @@ bool button_all_pressed(void);
 uint16_t button_zone_cell(int index, int cell_i);
 uint16_t button_box_zone_cell(int index, int cell_i);
 
+/* View. */
+void button_draw(int shadow);
+
 #endif /* LONGO_OBJECT_BUTTON_H */

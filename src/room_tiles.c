@@ -1,5 +1,9 @@
 ﻿#include "room_tiles.h"
 
+#include "level_data.h"
+
+#include <string.h>
+
 static const unsigned int longo_tutorial_tiles_3[LONGO_ROOM_TILE_WIDTH * LONGO_ROOM_TILE_HEIGHT] = {
     6u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 6u, 0u, 
     14u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 14u, 0u, 
@@ -651,3 +655,13 @@ const LongoRoomTileMap longo_room_tile_maps[LONGO_ROOM_TILE_COUNT] = {
     { "rm_editor", { longo_editor_tiles_3, 38, 26, LONGO_TILESET_TILESET1, -200, 0, 0 }, { longo_editor_tiles_1, 38, 26, LONGO_TILESET_GROUND, 120, 0, 0 }, 220, 20, -54, -127, -300, -400 },
     { "rm_levelbase", { longo_levelbase_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, { longo_levelbase_tiles_1, 38, 26, LONGO_TILESET_GROUND, 400, 0, 0 }, 500, 300, 100, 0, -100, -200 },
 };
+
+const LongoRoomTileMap *room_tiles_for(const struct LongoRoom *room)
+{
+    if (room == NULL) return NULL;
+    for (int i = 0; i < LONGO_ROOM_TILE_COUNT; i++) {
+        if (strcmp(longo_room_tile_maps[i].room_name, room->name) == 0)
+            return &longo_room_tile_maps[i];
+    }
+    return NULL;
+}

@@ -8,7 +8,6 @@
  * key repeat.  After each tick it advances the presentation and plays
  * the sounds the simulation queued.
  */
-#include "core/view.h"
 #include "core/world.h"
 #include "render.h"
 
@@ -17,7 +16,6 @@
 
 typedef struct LongoFront {
     SimWorld world;
-    Pres pres;
     LongoRender render;
 } LongoFront;
 
@@ -36,9 +34,7 @@ int main(void)
         return 1;
     }
 
-    unsigned int seed = (unsigned int)GetRandomValue(0, 0x7fffffff);
-    sim_init(seed);
-    pres_init(&front.pres, seed);
+    sim_init((unsigned int)GetRandomValue(0, 0x7fffffff));
 
     while (!WindowShouldClose()) {
         SimInput input;
@@ -68,9 +64,10 @@ int main(void)
         if (IsKeyPressed(KEY_ESCAPE)) input.pressed_any = 0;
 
         sim_tick(world_ptr(), &input);
-        pres_update(&front.pres, &front.world, &input);
-        longo_render_dispatch_sounds(&front.render, &front.world);
-        longo_render_frame(&front.render, &front.world, &front.pres);
+        world_view_tick(&input);
+        world_draw();
+        longo_render_dispatch_sounds(&front.render, world_ptr());
+        longo_render_frame(&front.render, world_ptr());
     }
 
     longo_render_shutdown(&front.render);

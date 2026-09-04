@@ -1,17 +1,12 @@
 /*
- * Longo Doggo renderer.
+ * Longo Doggo render backend.
  *
- * Reproduces the recovered GameMaker Draw events on top of raylib:
+ * Pure replay layer: object scripts push view items through core/view.h;
+ * this module owns the raylib assets and surfaces and replays the sorted
+ * item lists:
  *   - application surface at 304x208 (the original surface_resize size)
- *   - room background layer + tile layers + entities depth-sorted
- *     (higher depth first, ties by creation order)
  *   - global.shadow_surf rebuilt per frame, composited at 0.2 alpha
- *   - GUI pass at 304x208 GUI space (GameMaker's Draw GUI layer):
- *     obj_bloom_appsrf's Draw GUI Begin bloom composite first, then the
- *     tutorial dialogue boxes and transition level wipes
- *
- * All positions come from the presentation layer (eased visuals); all
- * game state comes from the simulation.
+ *   - GUI surface: obj_bloom_appsrf bloom composite, then GUI items
  *
  * Render targets never nest: the shadow surface, application surface,
  * bloom ping-pong passes and GUI surface are all filled top-level.
@@ -20,23 +15,12 @@
 #include "room_tiles.h"
 #include "sprites.h"
 
-#include "objects/button.h"
-#include "objects/box.h"
-#include "objects/door.h"
 #include "objects/dog.h"
-#include "objects/dialogue.h"
-#include "objects/house.h"
-#include "objects/transition.h"
-#include "objects/items.h"
-#include "objects/hole.h"
-#include "core/events.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define PI_RL 3.14159265358979f
 
 /* --------------------------------------------------------------- */
 /* Asset loading                                                     */
@@ -92,8 +76,7 @@ static void select_asset_root(LongoRender *render, const char *requested)
 }
 
 /* Load every animation frame of one sprite into a horizontal strip so the
- * GameMaker frame index maps to a source rectangle.  The exported frames
- * keep GameMaker's padded canvas, so all frames share frame 0's size. */
+ * GameMaker frame index maps to a source rectangle. */
 static bool load_sprite(LongoRender *render, LongoSprite sprite)
 {
     const char *name = longo_sprite_name(sprite);
@@ -230,7 +213,6 @@ bool longo_render_init(LongoRender *render, const char *asset_root)
     SetTextureFilter(render->app_surface.texture, TEXTURE_FILTER_POINT);
     SetTextureFilter(render->gui_surface.texture, TEXTURE_FILTER_POINT);
     SetTextureFilter(render->shadow_surface.texture, TEXTURE_FILTER_POINT);
-    /* GameMaker enables linear filtering for the bloom chain only. */
     SetTextureFilter(render->bloom_ping.texture, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(render->bloom_pong.texture, TEXTURE_FILTER_BILINEAR);
 
@@ -371,12 +353,12 @@ void longo_render_shutdown(LongoRender *render)
 }
 
 /* --------------------------------------------------------------- */
-/* GameMaker draw primitives                                         */
+/* Replay primitives                                                 */
 /* --------------------------------------------------------------- */
 
-static Color make_color_rgb(int r, int g, int b)
+static Color to_ray_color(ViewColor c)
 {
-    return (Color){ (unsigned char)r, (unsigned char)g, (unsigned char)b, 255 };
+    return (Color){ c.r, c.g, c.b, c.a };
 }
 
 /* draw_sprite_ext(): (x, y) is the sprite origin position. */
@@ -437,13 +419,6 @@ static void draw_sprite_part_ext(LongoRender *render, LongoSprite sprite,
                    0.0f, c);
 }
 
-static int frame_of(float image_index)
-{
-    int frame = (int)image_index;
-    return frame < 0 ? 0 : frame;
-}
-
-/* draw_line_width_color(): gradient c1 -> c2. */
 static void draw_line_width_color(Vector2 a, Vector2 b, float width, Color c1,
                                   Color c2)
 {
@@ -459,40 +434,6 @@ static void draw_line_width_color(Vector2 a, Vector2 b, float width, Color c1,
                     (unsigned char)((c1.b + c2.b) / 2), c2.a };
     DrawLineEx(a, mid, width, half1);
     DrawLineEx(mid, b, width, half2);
-}
-
-/* draw_circle_color(): vertical gradient c1 (top) -> c2 (bottom). */
-static void draw_circle_color(float x, float y, float radius, Color c1,
-                              Color c2)
-{
-    if (c1.r == c2.r && c1.g == c2.g && c1.b == c2.b) {
-        DrawCircleV((Vector2){ x, y }, radius, c1);
-        return;
-    }
-    DrawCircleGradient((Vector2){ x, y }, radius, c1, c2);
-}
-
-static float wave_calc(float a, float b, float period, float phase,
-                       double time_ms)
-{
-    return longo_wave(a, b, period, phase, time_ms);
-}
-
-static float point_direction(float x1, float y1, float x2, float y2)
-{
-    float dir = atan2f(-(y2 - y1), x2 - x1) * (180.0f / PI_RL);
-    if (dir < 0) dir += 360.0f;
-    return dir;
-}
-
-static float lengthdir_x(float len, float dir)
-{
-    return cosf(dir * (PI_RL / 180.0f)) * len;
-}
-
-static float lengthdir_y(float len, float dir)
-{
-    return -sinf(dir * (PI_RL / 180.0f)) * len;
 }
 
 /* --------------------------------------------------------------- */
@@ -603,9 +544,8 @@ static void draw_text_ext_centered(const LongoBitmapFont *font,
                 else
                     snprintf(probe, sizeof(probe), "%s", word);
                 if (text_width_scaled(font, probe, scale) > width &&
-                    out[0] != '\0') {
+                    out[0] != '\0')
                     break;
-                }
                 snprintf(out, sizeof(out), "%s", probe);
                 cursor = w_end;
             }
@@ -620,276 +560,9 @@ static void draw_text_ext_centered(const LongoBitmapFont *font,
 }
 
 /* --------------------------------------------------------------- */
-/* Entity draws (room space)                                          */
+/* Tile layers (8x8 tiles addressed in 12x12 atlas cells)             */
 /* --------------------------------------------------------------- */
 
-static LongoSprite dog_face_sprite(int dir)
-{
-    switch (dir) {
-    case 0: return LONGO_SPR_DOGDOWN;
-    case 90: return LONGO_SPR_DOGRIGHT;
-    case 180: return LONGO_SPR_DOGUP;
-    default: return LONGO_SPR_DOGLEFT;
-    }
-}
-
-static int flower_frame(const Pres *pres)
-{
-    return frame_of(pres->flower_clock);
-}
-
-/* oDog Draw event: the visible dog is vector art over the part chain,
- * plus the head sprite.  Part order in the sim (chain[0] nearest the
- * head) matches the original instance order. */
-static void draw_dog_world(LongoRender *render, const SimWorld *world,
-                           const Pres *pres)
-{
-    const Color body = make_color_rgb(153, 108, 53);
-    const Color outline = make_color_rgb(107, 61, 49);
-    int tail_frame = flower_frame(pres);
-
-    /* pass 1: legs, outline body, outline head circle */
-    for (int i = 0; i < dog_length(); i++) {
-        float px = pres->part_x[i];
-        float py = pres->part_y[i];
-        float fx = i == 0 ? pres->dog_x : pres->part_x[i - 1];
-        float fy = i == 0 ? pres->dog_y : pres->part_y[i - 1];
-        int is_first = (dog_part_flags(i) & DOG_PART_FIRST) != 0;
-        int legs = (dog_part_flags(i) & DOG_PART_LEGS) != 0;
-        if (legs) {
-            float angle_amp = pres_part_legs_angle(pres, i);
-            float legs_wave = wave_calc(-angle_amp, angle_amp, 0.2f, 0,
-                                        pres->time_ms);
-            float dir = (point_direction(px, py, fx, fy) - 90.0f) +
-                        (180.0f * is_first);
-            float leglength = 6.0f + (is_first ? 3.0f : 0.0f);
-            for (int leg = 0; leg < 2; leg++) {
-                float angle = (leg == 0 ? -45.0f : 225.0f) + legs_wave + dir;
-                Vector2 a = { px, py };
-                Vector2 b = { px + lengthdir_x(leglength, angle),
-                              py + lengthdir_y(leglength, angle) };
-                draw_line_width_color(a, b, 2.0f, outline, body);
-                draw_circle_color(b.x, b.y, 3.0f, body, outline);
-            }
-        }
-        draw_circle_color(px - 1.0f, py - 1.0f, 5.0f, outline, outline);
-        draw_line_width_color((Vector2){ px - 1.0f, py - 1.0f },
-                              (Vector2){ fx - 1.0f, fy - 1.0f }, 10.0f,
-                              outline, outline);
-        if (is_first) {
-            draw_circle_color(pres->dog_x, pres->dog_y - 1.0f, 5.0f, outline,
-                              outline);
-        }
-    }
-
-    /* pass 2: fill body and tail sprite */
-    for (int i = 0; i < dog_length(); i++) {
-        float px = pres->part_x[i];
-        float py = pres->part_y[i];
-        float fx = i == 0 ? pres->dog_x : pres->part_x[i - 1];
-        float fy = i == 0 ? pres->dog_y : pres->part_y[i - 1];
-        int legs = (dog_part_flags(i) & DOG_PART_LEGS) != 0;
-        draw_circle_color(px - 1.0f, py - 1.0f, 4.0f, body, body);
-        draw_line_width_color((Vector2){ px - 1.0f, py - 1.0f },
-                              (Vector2){ fx - 1.0f, fy - 1.0f }, 8.0f, body,
-                              body);
-        if (legs && !(dog_part_flags(i) & DOG_PART_FIRST)) {
-            draw_sprite_origin(render, LONGO_SPR_DOGTAIL, tail_frame,
-                               px - 1.0f, py - 3.0f, 1.0f, 1.0f, 0.0f, WHITE,
-                               1.0f);
-        }
-    }
-
-    draw_sprite_origin(render, dog_face_sprite(dog_dir()), flower_frame(pres),
-                       pres->dog_x, pres->dog_y, 1.0f, 1.0f, 0.0f, WHITE,
-                       1.0f);
-}
-
-/* --------------------------------------------------------------- */
-/* oShadows Draw event (global.shadow_surf)                           */
-/* --------------------------------------------------------------- */
-
-static void build_shadow_surface(LongoRender *render, const SimWorld *world,
-                                 const Pres *pres)
-{
-    Color black = BLACK;
-
-    BeginTextureMode(render->shadow_surface);
-    ClearBackground(BLANK);
-
-    for (int i = 0; i < dog_length(); i++) {
-        float px = pres->part_x[i];
-        float py = pres->part_y[i];
-        float fx = i == 0 ? pres->dog_x : pres->part_x[i - 1];
-        float fy = i == 0 ? pres->dog_y : pres->part_y[i - 1];
-        int is_first = (dog_part_flags(i) & DOG_PART_FIRST) != 0;
-        int legs = (dog_part_flags(i) & DOG_PART_LEGS) != 0;
-        if (legs) {
-            float angle_amp = pres_part_legs_angle(pres, i);
-            float legs_wave = wave_calc(-angle_amp, angle_amp, 0.2f, 0,
-                                        pres->time_ms);
-            float dir = (point_direction(px, py, fx, fy) - 90.0f) +
-                        (180.0f * is_first);
-            float leglength = 6.0f + (is_first ? 3.0f : 0.0f);
-            for (int leg = 0; leg < 2; leg++) {
-                float angle = (leg == 0 ? -45.0f : 225.0f) + legs_wave + dir;
-                Vector2 a = { px, py + 5.0f };
-                Vector2 b = { px + lengthdir_x(leglength, angle),
-                              py + 5.0f + lengthdir_y(leglength, angle) };
-                DrawLineEx(a, b, 2.0f, black);
-                DrawCircleV(b, 3.0f, black);
-            }
-        }
-        DrawCircleV((Vector2){ px - 1.0f, py + 4.0f }, 5.0f, black);
-        DrawLineEx((Vector2){ px - 1.0f, py + 4.0f },
-                   (Vector2){ fx - 1.0f, fy + 4.0f }, 10.0f, black);
-    }
-
-    if (dog_alive()) {
-        draw_sprite_origin(render, dog_face_sprite(dog_dir()),
-                           flower_frame(pres), pres->dog_x, pres->dog_y + 5.0f,
-                           1.0f, 1.0f, 0.0f, black, 1.0f);
-    }
-    for (int i = 0; i < apple_count(); i++) {
-        if (!apple_alive(i)) continue;
-        draw_sprite_origin(render, LONGO_SPR_APPLE, frame_of(pres->apple_clock),
-                           (float)(sim_cell_x(apple_cell(i)) * SIM_CELL),
-                           (float)(sim_cell_y(apple_cell(i)) * SIM_CELL + 7.0f),
-                           1.0f, 0.6f, 0.0f, black, 1.0f);
-    }
-    for (int i = 0; i < skull_count(); i++) {
-        if (!skull_alive(i)) continue;
-        draw_sprite_origin(render, LONGO_SPR_SKULL, frame_of(pres->pear_clock),
-                           (float)(sim_cell_x(skull_cell(i)) * SIM_CELL),
-                           (float)(sim_cell_y(skull_cell(i)) * SIM_CELL + 7.0f),
-                           1.0f, 0.6f, 0.0f, black, 1.0f);
-    }
-    for (int i = 0; i < PRES_MAX_FLIES; i++) {
-        const PresButterfly *fly = &pres->flies[i];
-        if (!fly->alive) continue;
-        draw_sprite_origin(render, LONGO_SPR_FLY, frame_of(pres->apple_clock),
-                           fly->x, fly->y + 16.0f, 1.0f, 0.6f, 0.0f, black,
-                           1.0f);
-    }
-    if (house_alive()) {
-        /* the goal instance sits at the cell column centre, one cell down */
-        float gx = (float)(sim_cell_x(house_goal_cell()) * SIM_CELL + 8);
-        float gy = (float)(sim_cell_y(house_goal_cell()) * SIM_CELL + 16);
-        draw_sprite_origin(render, LONGO_SPR_HOUSE, flower_frame(pres),
-                           gx, gy + 4.0f, 1.0f, 0.5f, 0.0f, black, 1.0f);
-    }
-    for (int i = 0; i < box_count(); i++) {
-        if (!box_alive(i)) continue;
-        draw_sprite_origin(render, LONGO_SPR_BOX, 0, pres->box_x[i],
-                           pres->box_y[i] + 5.0f, 1.0f, 1.0f, 0.0f, black,
-                           1.0f);
-    }
-    for (int i = 0; i < door_count(); i++) {
-        if (!door_alive(i)) continue;
-        draw_sprite_origin(render, LONGO_SPR_DOOR, 0,
-                           (float)(sim_cell_x(door_cell(i)) * SIM_CELL),
-                           (float)(sim_cell_y(door_cell(i)) * SIM_CELL + 22.0f),
-                           1.0f, -0.4f, 0.0f, black, 1.0f);
-    }
-    for (int i = 0; i < button_count(); i++) {
-        if (!button_alive(i)) continue;
-        draw_sprite_origin(render,
-                           button_pressed(i) ? LONGO_SPR_BUTTONPRESSED
-                                             : LONGO_SPR_BUTTON,
-                           0,
-                           (float)(sim_cell_x(button_zone_cell(i, 0)) * SIM_CELL),
-                           (float)(sim_cell_y(button_zone_cell(i, 0)) * SIM_CELL + 4.0f),
-                           1.0f, 1.0f, 0.0f, black, 1.0f);
-    }
-    if (pres->has_title_decor) {
-        float wave1 = wave_calc(0, 8, 2, 0, pres->time_ms);
-        float wave2 = wave_calc(0, 8, 2, 0.1f, pres->time_ms);
-        draw_sprite_part_ext(render, LONGO_SPR_TITLE, 0, 0, 0, 191, 64,
-                             pres->title_x, pres->title_y + wave1 + 85.0f,
-                             1.0f, 0.5f, black, 1.0f);
-        draw_sprite_part_ext(render, LONGO_SPR_TITLE, 0, 0, 69, 191, 149,
-                             pres->title_x,
-                             pres->title_y + 48.0f + wave2 + 52.0f, 1.0f, 0.5f,
-                             black, 1.0f);
-    }
-    EndTextureMode();
-}
-
-/* --------------------------------------------------------------- */
-/* Instance draws (room space)                                        */
-/* --------------------------------------------------------------- */
-
-static void draw_smoke_puff(LongoRender *render, const PresSmoke *smoke)
-{
-    Color cream = make_color_rgb(255, 235, 204);
-    Color gold = make_color_rgb(235, 176, 81);
-    static const float offsets[5][2] = {
-        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }, { 0, 0 }
-    };
-    for (int i = 0; i < 5; i++) {
-        draw_sprite_origin(render, LONGO_SPR_SMOKE, 0,
-                           smoke->x + offsets[i][0], smoke->y + offsets[i][1],
-                           smoke->scale, smoke->scale, smoke->angle,
-                           i == 4 ? cream : gold, 1.0f);
-    }
-}
-
-/* oGoalUp draw: house sprite, remain number and the pulse scales. */
-static void draw_goal(LongoRender *render, const SimWorld *world,
-                      const Pres *pres)
-{
-    const LongoBitmapFont *font = font_by_asset(render, 2);
-    int remain = house_remain();
-    /* oGoal instance position: cell column centre, one cell below the top */
-    float gx = (float)(sim_cell_x(house_goal_cell()) * SIM_CELL + 8);
-    float gy = (float)(sim_cell_y(house_goal_cell()) * SIM_CELL + 16);
-    int house_frame = remain <= 0 ? 1 : 0;
-
-    draw_sprite_part_ext(render, LONGO_SPR_HOUSE, house_frame, 0, 0, 64, 44,
-                         gx - (32.0f * pres->goal_scale_x),
-                         gy - (64.0f * pres->goal_scale_y),
-                         pres->goal_scale_x, pres->goal_scale_y, WHITE, 1.0f);
-    if (remain > 0) {
-        char text[16];
-        float wave = wave_calc(-pres->goal_count2 / 50.0f,
-                               pres->goal_count2 / 50.0f, 0.35f, 0,
-                               pres->time_ms);
-        float y = (gy + 1.0f) - 32.0f + wave;
-        snprintf(text, sizeof(text), "%d", remain);
-        if (font == NULL || !font->loaded) return;
-        draw_text_centered(font, text, gx + 1.0f,
-                           y - font->line_height * 0.5f, 1.0f,
-                           make_color_rgb(128, 0, 0));
-        draw_text_centered(font, text, gx, y - font->line_height * 0.5f, 1.0f,
-                           make_color_rgb(255, 0, 0));
-    }
-}
-
-static void draw_title(LongoRender *render, const Pres *pres)
-{
-    const LongoBitmapFont *font = font_by_asset(render, 0);
-    float wave1 = wave_calc(0, 8, 2, 0, pres->time_ms);
-    float wave2 = wave_calc(0, 8, 2, 0.1f, pres->time_ms);
-    draw_sprite_part_ext(render, LONGO_SPR_TITLE, 0, 0, 0, 191, 64,
-                         pres->title_x, pres->title_y + wave1, 1.0f, 1.0f,
-                         WHITE, 1.0f);
-    draw_sprite_part_ext(render, LONGO_SPR_TITLE, 0, 0, 69, 191, 149,
-                         pres->title_x, pres->title_y + 48.0f + wave2 + 2.0f,
-                         1.0f, 1.0f, WHITE, 1.0f);
-    if (font != NULL && font->loaded) {
-        float y = 188.0f + wave1 * 0.5f;
-        draw_text_left(font, "Press Any Key to Start", 151.0f, y + 1.0f, 1.0f,
-                       make_color_rgb(51, 17, 0));
-        draw_text_left(font, "Press Any Key to Start", 150.0f, y, 1.0f,
-                       make_color_rgb(255, 235, 204));
-    }
-}
-
-/* --------------------------------------------------------------- */
-/* Tile layers and room compose                                       */
-/* --------------------------------------------------------------- */
-
-/* Tile layers hold 8x8 tiles addressed in 12x12 atlas cells. */
 static void draw_tile_layer(LongoRender *render, const LongoTileLayer *layer)
 {
     Texture2D atlas;
@@ -926,99 +599,96 @@ static void draw_tile_layer(LongoRender *render, const LongoTileLayer *layer)
     }
 }
 
-static const LongoRoomTileMap *tile_map_for(const LongoRoom *room)
-{
-    for (int i = 0; i < LONGO_ROOM_TILE_COUNT; i++) {
-        if (strcmp(longo_room_tile_maps[i].room_name, room->name) == 0)
-            return &longo_room_tile_maps[i];
-    }
-    return NULL;
-}
-
 /* --------------------------------------------------------------- */
-/* GUI pass                                                           */
+/* View replay                                                        */
 /* --------------------------------------------------------------- */
 
-static void draw_tutorial_gui(LongoRender *render, const SimWorld *world,
-                              const Pres *pres)
+static void replay_item(LongoRender *render, const SimWorld *world,
+                        const ViewItem *it)
 {
-    const LongoBitmapFont *font = font_by_asset(render, 1);
-    const Dbox *box;
-    float wave;
-    float width;
-
-    if (!dialogue_active()) return;
-    int index = dialogue_index();
-    if (index < 0) index = 0;
-    if (index > 7) index = 7;
-    box = dialogue_box(index);
-    if (box == NULL || box->text == NULL) return;
-    wave = wave_calc(0, 2, 2, 0, pres->time_ms);
-
-    draw_sprite_origin(render, LONGO_SPR_DIALOGUEBOX, 0, box->x,
-                       box->y + wave, pres->dlg_scale_x, pres->dlg_scale_y,
-                       0.0f, WHITE, 1.0f);
-    if (font == NULL || !font->loaded) return;
-    float scale = pres->dlg_scale_y * 0.3f;
-    width = 30.0f * dialogue_base_scale();
-    draw_text_ext_centered(font, box->text, box->x + 0.5f,
-                           box->y + wave + 0.5f, 12.0f, width, scale,
-                           make_color_rgb(255, 196, 101));
-    draw_text_ext_centered(font, box->text, box->x, box->y + wave, 12.0f,
-                           width, scale, make_color_rgb(84, 64, 32));
-}
-
-static void draw_transition_gui(LongoRender *render, const SimWorld *world)
-{
-    (void)world;
-    const TransitionState *trans = transition_state();
-    Color color2 = make_color_rgb(113 - 10, 153 - 10, 61 - 10);
-    Color color = make_color_rgb(141 - 10, 199 - 10, 63 - 10);
-
-    if (!trans->active) return;
-
-    if (trans->open) {
-        for (int i = 0; i < 4; i++) {
-            draw_sprite_origin(render, LONGO_SPR_TRANSITION, 0, trans->x,
-                               (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f,
-                               color2, 1.0f);
-            draw_sprite_origin(render, LONGO_SPR_TRANSITION, 0, trans->x,
-                               (float)(i * 64), 1.0f, 1.0f, 0.0f, color, 1.0f);
+    switch (it->kind) {
+    case VIEW_ITEM_SPRITE:
+        draw_sprite_origin(render, it->sprite, it->frame, it->x, it->y,
+                           it->xscale, it->yscale, it->rotation,
+                           to_ray_color(it->color), it->alpha);
+        break;
+    case VIEW_ITEM_SPRITE_PART:
+        draw_sprite_part_ext(render, it->sprite, it->frame, (int)it->radius,
+                             (int)it->rotation, (int)it->w, (int)it->h,
+                             it->x, it->y, it->xscale, it->yscale,
+                             to_ray_color(it->color), it->alpha);
+        break;
+    case VIEW_ITEM_LINE:
+        draw_line_width_color((Vector2){ it->x, it->y },
+                              (Vector2){ it->x2, it->y2 }, it->radius,
+                              to_ray_color(it->color),
+                              to_ray_color(it->color2));
+        break;
+    case VIEW_ITEM_CIRCLE:
+        if (it->color.r == it->color2.r && it->color.g == it->color2.g &&
+            it->color.b == it->color2.b)
+            DrawCircleV((Vector2){ it->x, it->y }, it->radius,
+                        to_ray_color(it->color));
+        else
+            DrawCircleGradient((Vector2){ it->x, it->y }, it->radius,
+                               to_ray_color(it->color),
+                               to_ray_color(it->color2));
+        break;
+    case VIEW_ITEM_RECT:
+        DrawRectangle((int)it->x, (int)it->y, (int)it->w, (int)it->h,
+                      to_ray_color(it->color));
+        break;
+    case VIEW_ITEM_TEXT:
+        draw_text_left(font_by_asset(render, it->font_id), it->text, it->x,
+                       it->y, it->xscale, to_ray_color(it->color));
+        break;
+    case VIEW_ITEM_TEXT_WRAPPED:
+        draw_text_ext_centered(font_by_asset(render, it->font_id), it->text,
+                               it->x, it->y, it->line_sep, it->text_width,
+                               it->xscale, to_ray_color(it->color));
+        break;
+    case VIEW_ITEM_SHADOW_COMPOSITE:
+        if (dog_alive()) {
+            Rectangle src = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
+                              -(float)LONGO_LOGICAL_HEIGHT };
+            Color tint = { 255, 255, 255, (unsigned char)(255 * 0.2f) };
+            DrawTexturePro(render->shadow_surface.texture, src,
+                           (Rectangle){ 0, 0, (float)LONGO_LOGICAL_WIDTH,
+                                        (float)LONGO_LOGICAL_HEIGHT },
+                           (Vector2){ 0, 0 }, 0.0f, tint);
         }
-        if (trans->x + 32.0f > 0.0f) {
-            DrawRectangle((int)(trans->x + 32.0f), 0,
-                          (int)(304.0f - (trans->x + 32.0f)),
-                          LONGO_LOGICAL_HEIGHT, color);
+        break;
+    case VIEW_ITEM_TILE_LAYERS: {
+        const LongoRoomTileMap *tiles = room_tiles_for(world->room);
+        if (it->frame == 0) {
+            if (render->sprite_loaded[LONGO_SPR_TILE]) {
+                Texture2D tile = render->sprites[LONGO_SPR_TILE];
+                for (int y = 0; y < LONGO_LOGICAL_HEIGHT; y += tile.height)
+                    for (int x = 0; x < LONGO_LOGICAL_WIDTH; x += tile.width)
+                        DrawTexture(tile, x, y, WHITE);
+            }
+        } else if (it->frame == 1 && tiles != NULL) {
+            draw_tile_layer(render, &tiles->tiles_1);
+        } else if (it->frame == 2 && tiles != NULL) {
+            draw_tile_layer(render, &tiles->tiles_3);
         }
-    } else if (trans->close) {
-        for (int i = 0; i < 4; i++) {
-            draw_sprite_origin(render, LONGO_SPR_TRANSITION, 1, trans->x,
-                               (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f,
-                               color2, 1.0f);
-            draw_sprite_origin(render, LONGO_SPR_TRANSITION, 1, trans->x,
-                               (float)(i * 64), 1.0f, 1.0f, 0.0f, color, 1.0f);
-        }
-        if (trans->x + 32.0f > 0.0f) {
-            DrawRectangle(0, 0, (int)(trans->x + 32.0f),
-                          LONGO_LOGICAL_HEIGHT, color);
-        }
+        break;
     }
-
-    const LongoBitmapFont *font = font_by_asset(render, 0);
-    if (font == NULL || !font->loaded) return;
-    char text[128];
-    if (trans->room_num <= 7) {
-        snprintf(text, sizeof(text), "LEVEL %d", trans->room_num);
-        if (trans->open || trans->close) {
-            draw_text_left(font, text, 142.0f, trans->text_y + 2.0f, 1.0f,
-                           make_color_rgb(0, 128, 0));
-            draw_text_left(font, text, 140.0f, trans->text_y, 1.0f, WHITE);
-        }
+    default:
+        break;
     }
 }
 
-/* obj_bloom_appsrf Draw GUI Begin: threshold -> blur -> composite.
- * Each pass runs at the top level (raylib render targets do not nest). */
+static void replay_layer(LongoRender *render, const SimWorld *world,
+                         ViewLayer layer)
+{
+    int count;
+    const ViewItem *items = view_items(layer, &count);
+    for (int i = 0; i < count; i++)
+        replay_item(render, world, &items[i]);
+}
+
+/* obj_bloom_appsrf Draw GUI Begin: threshold -> blur -> composite. */
 static void bloom_bright_pass(LongoRender *render)
 {
     float threshold = 0.8f;
@@ -1044,7 +714,7 @@ static void bloom_bright_pass(LongoRender *render)
 static void bloom_blur_pass(LongoRender *render, RenderTexture2D *src,
                             RenderTexture2D *dst, float vec_x, float vec_y)
 {
-    float blur_steps = 5.0f; /* round(3.75) + 1 */
+    float blur_steps = 5.0f;
     float sigma = 0.2f;
     float texel[2] = { 1.0f / (float)LONGO_LOGICAL_WIDTH,
                        1.0f / (float)LONGO_LOGICAL_HEIGHT };
@@ -1089,288 +759,42 @@ static void bloom_composite(LongoRender *render)
     EndShaderMode();
 }
 
-/* --------------------------------------------------------------- */
-/* Frame                                                              */
-/* --------------------------------------------------------------- */
-
-/* Entity draw slots: static layers + sim entities + presentation fx. */
-enum {
-    SLOT_BG = 0,
-    SLOT_TILES_1,
-    SLOT_TILES_3,
-    SLOT_DOG,
-    SLOT_BOX,
-    SLOT_SINK,
-    SLOT_APPLE,
-    SLOT_SKULL,
-    SLOT_HOLE,
-    SLOT_BUTTON,
-    SLOT_DOOR,
-    SLOT_FLOWER,
-    SLOT_FLY,
-    SLOT_GOAL,
-    SLOT_BARK,
-    SLOT_SMOKE,
-    SLOT_POPUP,
-    SLOT_SHADOWS,
-    SLOT_TITLE
-};
-
-typedef struct DrawItem {
-    int depth;
-    int order;
-    int slot;
-    int index;
-} DrawItem;
-
-static int draw_item_compare(const void *a, const void *b)
+void longo_render_frame(LongoRender *render, const SimWorld *world)
 {
-    const DrawItem *ia = (const DrawItem *)a;
-    const DrawItem *ib = (const DrawItem *)b;
-    if (ia->depth != ib->depth) return ib->depth - ia->depth;
-    return ia->order - ib->order;
-}
-
-static void draw_item(LongoRender *render, const SimWorld *world,
-                      const Pres *pres, const DrawItem *item)
-{
-    switch (item->slot) {
-    case SLOT_BG: {
-        /* background layer: sprTile tiled, visible in every room */
-        if (render->sprite_loaded[LONGO_SPR_TILE]) {
-            Texture2D tile = render->sprites[LONGO_SPR_TILE];
-            int fw = tile.width;
-            int fh = tile.height;
-            for (int y = 0; y < LONGO_LOGICAL_HEIGHT; y += fh) {
-                for (int x = 0; x < LONGO_LOGICAL_WIDTH; x += fw) {
-                    DrawTexture(tile, x, y, WHITE);
-                }
-            }
-        }
-        break;
-    }
-    case SLOT_TILES_1:
-    case SLOT_TILES_3: {
-        const LongoRoomTileMap *tiles = tile_map_for(world->room);
-        if (tiles != NULL) {
-            draw_tile_layer(render, item->slot == SLOT_TILES_1
-                                        ? &tiles->tiles_1
-                                        : &tiles->tiles_3);
-        }
-        break;
-    }
-    case SLOT_DOG:
-        if (dog_alive()) draw_dog_world(render, world, pres);
-        break;
-    case SLOT_BOX:
-        if (box_alive(item->index))
-            draw_sprite_origin(render, LONGO_SPR_BOX, 0,
-                               pres->box_x[item->index],
-                               pres->box_y[item->index], 1.0f, 1.0f, 0.0f,
-                               WHITE, 1.0f);
-        break;
-    case SLOT_SINK: {
-        const PresSink *s = &pres->sinks[item->index];
-        if (s->alive)
-            draw_sprite_origin(render, LONGO_SPR_BOX, 0, s->x, s->y, 1.0f,
-                               1.0f, 0.0f, WHITE, 1.0f);
-        break;
-    }
-    case SLOT_APPLE:
-        if (apple_alive(item->index))
-            draw_sprite_origin(render, LONGO_SPR_APPLE,
-                               frame_of(pres->apple_clock),
-                               (float)(sim_cell_x(apple_cell(item->index)) * SIM_CELL),
-                               (float)(sim_cell_y(apple_cell(item->index)) * SIM_CELL),
-                               1.0f, 1.0f, 0.0f, WHITE, 1.0f);
-        break;
-    case SLOT_SKULL:
-        if (skull_alive(item->index))
-            draw_sprite_origin(render, LONGO_SPR_SKULL,
-                               frame_of(pres->pear_clock),
-                               (float)(sim_cell_x(skull_cell(item->index)) * SIM_CELL),
-                               (float)(sim_cell_y(skull_cell(item->index)) * SIM_CELL),
-                               1.0f, 1.0f, 0.0f, WHITE, 1.0f);
-        break;
-    case SLOT_HOLE: {
-        int i = item->index;
-        draw_sprite_origin(render, LONGO_SPR_HOLE, hole_is_full(i) ? 1 : 0,
-                           (float)(sim_cell_x(hole_cell(i)) * SIM_CELL),
-                           (float)(sim_cell_y(hole_cell(i)) * SIM_CELL), 1.0f,
-                           1.0f, 0.0f, WHITE, 1.0f);
-        break;
-    }
-    case SLOT_BUTTON:
-        if (button_alive(item->index))
-            draw_sprite_origin(render,
-                               button_pressed(item->index)
-                                   ? LONGO_SPR_BUTTONPRESSED
-                                   : LONGO_SPR_BUTTON,
-                               frame_of(pres->button_clock),
-                               (float)(sim_cell_x(button_zone_cell(item->index, 0)) * SIM_CELL),
-                               (float)(sim_cell_y(button_zone_cell(item->index, 0)) * SIM_CELL),
-                               1.0f, 1.0f, 0.0f, WHITE, 1.0f);
-        break;
-    case SLOT_DOOR:
-        if (door_alive(item->index)) {
-            const PresDoor *pd = &pres->doors[item->index];
-            draw_sprite_origin(render, LONGO_SPR_DOOR, 0, pd->x, pd->y,
-                               pd->scale_x, pd->scale_y, 0.0f, WHITE, 1.0f);
-        }
-        break;
-    case SLOT_FLOWER:
-        draw_sprite_origin(render, LONGO_SPR_FLOWER,
-                           frame_of(pres->flower_clock),
-                           pres->flowers[item->index].x,
-                           pres->flowers[item->index].y, 1.0f, 1.0f, 0.0f,
-                           WHITE, 1.0f);
-        break;
-    case SLOT_FLY: {
-        const PresButterfly *fly = &pres->flies[item->index];
-        if (fly->alive)
-            draw_sprite_origin(render, LONGO_SPR_FLY,
-                               frame_of(pres->fly_clock), fly->x, fly->y,
-                               1.0f, 1.0f, 0.0f, WHITE, 1.0f);
-        break;
-    }
-    case SLOT_GOAL:
-        if (house_alive()) draw_goal(render, world, pres);
-        break;
-    case SLOT_BARK: {
-        const PresBark *b = &pres->barks[item->index];
-        if (b->alive)
-            draw_sprite_origin(render, LONGO_SPR_BARK, frame_of(b->frame),
-                               b->x, b->y, 1.0f, 1.0f, b->angle, WHITE, 1.0f);
-        break;
-    }
-    case SLOT_SMOKE: {
-        const PresSmoke *s = &pres->smoke[item->index];
-        if (s->alive) draw_smoke_puff(render, s);
-        break;
-    }
-    case SLOT_POPUP: {
-        const PresPopup *o = &pres->popups[item->index];
-        if (o->alive)
-            draw_sprite_origin(render, LONGO_SPR_ONE, o->variant, o->x, o->y,
-                               1.0f, 1.0f, 0.0f, WHITE, o->alpha);
-        break;
-    }
-    case SLOT_SHADOWS: {
-        /* composited here in the depth order (oShadows depth 210) */
-        if (dog_alive()) {
-            Rectangle src = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                              -(float)LONGO_LOGICAL_HEIGHT };
-            Color tint = { 255, 255, 255, (unsigned char)(255 * 0.2f) };
-            DrawTexturePro(render->shadow_surface.texture, src,
-                           (Rectangle){ 0, 0, (float)LONGO_LOGICAL_WIDTH,
-                                        (float)LONGO_LOGICAL_HEIGHT },
-                           (Vector2){ 0, 0 }, 0.0f, tint);
-        }
-        break;
-    }
-    case SLOT_TITLE:
-        if (pres->has_title_decor) draw_title(render, pres);
-        break;
-    default:
-        break;
-    }
-}
-
-void longo_render_frame(LongoRender *render, const SimWorld *world,
-                        const Pres *pres)
-{
-    DrawItem items[20 + BOX_MAX + HOLE_MAX + ITEMS_MAX * 2 +
-                   BUTTON_MAX + DOOR_MAX + PRES_MAX_FLOWERS +
-                   PRES_MAX_FLIES + PRES_MAX_SMOKE + PRES_MAX_POPUPS +
-                   PRES_MAX_BARKS + PRES_MAX_SINKS];
-    int item_count = 0;
-    const LongoRoomTileMap *tiles = tile_map_for(world->room);
     Rectangle flip = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
                        -(float)LONGO_LOGICAL_HEIGHT };
     Rectangle full = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
                        (float)LONGO_LOGICAL_HEIGHT };
 
-    build_shadow_surface(render, world, pres);
+    view_sort();
 
-    /* 1. application surface */
-    BeginTextureMode(render->app_surface);
-    ClearBackground(BLACK);
-
-    /* depth-sorted drawables: background(700), tiles, shadow, entities */
-    items[item_count++] = (DrawItem){ 700, 0, SLOT_BG, 0 };
-    if (tiles != NULL) {
-        items[item_count++] =
-            (DrawItem){ tiles->tiles_1.depth, 1, SLOT_TILES_1, 0 };
-        items[item_count++] =
-            (DrawItem){ tiles->tiles_3.depth, 2, SLOT_TILES_3, 0 };
-    }
-    if (pres->shadows_present)
-        items[item_count++] = (DrawItem){ 210, 3, SLOT_SHADOWS, 0 };
-    if (dog_alive()) items[item_count++] = (DrawItem){ 0, 4, SLOT_DOG, 0 };
-    for (int i = 0; i < box_count(); i++) {
-        if (!box_alive(i)) continue;
-        items[item_count++] = (DrawItem){
-            (int)(-100 - pres->box_y[i] / 6), 10 + i, SLOT_BOX, i
-        };
-    }
-    for (int i = 0; i < pres->sink_count; i++)
-        items[item_count++] = (DrawItem){ -100, 40 + i, SLOT_SINK, i };
-    for (int i = 0; i < apple_count(); i++)
-        if (apple_alive(i))
-            items[item_count++] = (DrawItem){ 100, 50 + i, SLOT_APPLE, i };
-    for (int i = 0; i < skull_count(); i++)
-        if (skull_alive(i))
-            items[item_count++] = (DrawItem){ 100, 90 + i, SLOT_SKULL, i };
-    for (int i = 0; i < hole_count(); i++)
-        items[item_count++] = (DrawItem){ 200, 130 + i, SLOT_HOLE, i };
-    for (int i = 0; i < button_count(); i++)
-        if (button_alive(i))
-            items[item_count++] = (DrawItem){ 200, 150 + i, SLOT_BUTTON, i };
-    for (int i = 0; i < door_count(); i++)
-        if (door_alive(i))
-            items[item_count++] = (DrawItem){ 100, 170 + i, SLOT_DOOR, i };
-    for (int i = 0; i < pres->flower_count; i++)
-        items[item_count++] = (DrawItem){ 200, 180 + i, SLOT_FLOWER, i };
-    for (int i = 0; i < PRES_MAX_FLIES; i++)
-        if (pres->flies[i].alive)
-            items[item_count++] = (DrawItem){ -500, 200 + i, SLOT_FLY, i };
-    if (house_alive())
-        items[item_count++] = (DrawItem){ -180, 210, SLOT_GOAL, 0 };
-    for (int i = 0; i < pres->bark_count; i++)
-        if (pres->barks[i].alive)
-            items[item_count++] = (DrawItem){ -500, 220 + i, SLOT_BARK, i };
-    for (int i = 0; i < pres->smoke_count; i++)
-        if (pres->smoke[i].alive)
-            items[item_count++] = (DrawItem){ -1000, 240 + i, SLOT_SMOKE, i };
-    for (int i = 0; i < pres->popup_count; i++)
-        if (pres->popups[i].alive)
-            items[item_count++] = (DrawItem){ -200000, 420 + i, SLOT_POPUP, i };
-    if (pres->has_title_decor)
-        items[item_count++] = (DrawItem){ -600, 440, SLOT_TITLE, 0 };
-
-    qsort(items, (size_t)item_count, sizeof(DrawItem), draw_item_compare);
-
-    for (int i = 0; i < item_count; i++) {
-        draw_item(render, world, pres, &items[i]);
-    }
+    /* shadow surface from the shadow layer */
+    BeginTextureMode(render->shadow_surface);
+    ClearBackground(BLANK);
+    replay_layer(render, world, VIEW_SHADOW);
     EndTextureMode();
 
-    /* 2. bloom: obj_bloom_appsrf Draw GUI Begin (top-level passes) */
+    /* application surface from the world layer */
+    BeginTextureMode(render->app_surface);
+    ClearBackground(BLACK);
+    replay_layer(render, world, VIEW_WORLD);
+    EndTextureMode();
+
+    /* bloom */
     bloom_bright_pass(render);
     bloom_blur_pass(render, &render->bloom_ping, &render->bloom_pong, 1.0f,
                     0.0f);
     bloom_blur_pass(render, &render->bloom_pong, &render->bloom_ping, 0.0f,
                     1.0f);
 
-    /* 3. GUI surface: bloom composite then Draw GUI events */
+    /* GUI surface: bloom composite then GUI items */
     BeginTextureMode(render->gui_surface);
     ClearBackground(BLACK);
     bloom_composite(render);
-    draw_tutorial_gui(render, world, pres);
-    draw_transition_gui(render, world);
+    replay_layer(render, world, VIEW_GUI);
     EndTextureMode();
 
-    /* 4. present: GUI surface fills the window (GUI space scales 4x) */
+    /* present */
     BeginDrawing();
     ClearBackground(BLACK);
     Rectangle screen = { 0.0f, 0.0f, (float)GetScreenWidth(),
@@ -1382,12 +806,12 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
 
 void longo_render_dispatch_sounds(LongoRender *render, SimWorld *world)
 {
-    SoundEvent events[EVENTS_MAX_SOUNDS];
-    int count = events_poll_sounds(events);
+    SoundEvent ev[EVENTS_MAX_SOUNDS];
+    int count = events_poll_sounds(ev);
     for (int i = 0; i < count; i++) {
-        int snd = events[i].sound;
+        int snd = ev[i].sound;
         if (snd <= SND_NONE || snd > SND_BARK) continue;
-        if (events[i].loop) {
+        if (ev[i].loop) {
             if (render->music_loaded && !render->music_playing) {
                 PlaySound(render->music);
                 render->music_playing = true;
