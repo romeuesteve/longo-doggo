@@ -1,6 +1,8 @@
 #include "view.h"
 
 #include "../objects/box.h"
+#include "../objects/door.h"
+#include "../objects/dog.h"
 #include "../objects/dialogue.h"
 #include "../objects/house.h"
 #include "../objects/transition.h"
@@ -126,10 +128,10 @@ static void spawn_sink(Pres *p, float x, float y, float tx, float ty)
 
 static void snap_dog(Pres *p, const SimWorld *w)
 {
-    p->dog_x = (float)(w->dog.cx * SIM_CELL + 8);
-    p->dog_y = (float)(w->dog.cy * SIM_CELL + 8);
-    for (int i = 0; i < w->dog.length; i++) {
-        uint16_t cell = w->dog.chain[i];
+    p->dog_x = (float)(dog_cx() * SIM_CELL + 8);
+    p->dog_y = (float)(dog_cy() * SIM_CELL + 8);
+    for (int i = 0; i < dog_length(); i++) {
+        uint16_t cell = dog_part_cell(i);
         p->part_cell[i] = cell;
         p->part_x[i] = (float)(sim_cell_x(cell) * SIM_CELL + 8);
         p->part_y[i] = (float)(sim_cell_y(cell) * SIM_CELL + 8);
@@ -274,7 +276,7 @@ static void update_butterflies(Pres *p, const SimWorld *w,
         fly->x += fly->hspd;
         fly->y += fly->vspd;
 
-        if (w->dog.alive && input->pressed_space) {
+        if (dog_alive() && input->pressed_space) {
             float dx = fly->x - p->dog_x;
             float dy = fly->y - p->dog_y;
             if (sqrtf(dx * dx + dy * dy) < 10.0f) {
@@ -368,14 +370,14 @@ void pres_update(Pres *p, SimWorld *w, const SimInput *input)
     /* dog ease: the xx/yy lerp, now the only interpolation path.
      * Targets are sprite centres (cell top-left + 8), like the original
      * instance positions. */
-    float dog_tx = (float)(w->dog.cx * SIM_CELL + 8);
-    float dog_ty = (float)(w->dog.cy * SIM_CELL + 8);
-    if (w->dog.alive) {
+    float dog_tx = (float)(dog_cx() * SIM_CELL + 8);
+    float dog_ty = (float)(dog_cy() * SIM_CELL + 8);
+    if (dog_alive()) {
         p->dog_x = f_lerp(p->dog_x, dog_tx, 0.2f);
         p->dog_y = f_lerp(p->dog_y, dog_ty, 0.2f);
     }
-    for (int i = 0; i < w->dog.length; i++) {
-        uint16_t cell = w->dog.chain[i];
+    for (int i = 0; i < dog_length(); i++) {
+        uint16_t cell = dog_part_cell(i);
         float tx = (float)(sim_cell_x(cell) * SIM_CELL + 8);
         float ty = (float)(sim_cell_y(cell) * SIM_CELL + 8);
         if (p->part_wiggle[i] > 0) p->part_wiggle[i]--;
@@ -396,24 +398,23 @@ void pres_update(Pres *p, SimWorld *w, const SimInput *input)
         p->box_y[i] = f_lerp(p->box_y[i], ty, 0.25f);
     }
 
-    /* doors: open squash port (the sim destroys the door after 14 ticks) */
-    for (int i = 0; i < w->door_count; i++) {
-        const SimDoor *d = &w->doors[i];
+    /* doors: open squash port (the door script poofs after 14 ticks) */
+    for (int i = 0; i < door_count(); i++) {
         PresDoor *pd = &p->doors[i];
-        if (!d->alive) continue;
-        if (!d->open) {
+        if (!door_alive(i)) continue;
+        if (!door_open(i)) {
             pd->scale_x = pd->scale_y = 1.0f;
-            pd->x = (float)(sim_cell_x(d->cell) * SIM_CELL);
-            pd->y = (float)(sim_cell_y(d->cell) * SIM_CELL);
+            pd->x = (float)(sim_cell_x(door_cell(i)) * SIM_CELL);
+            pd->y = (float)(sim_cell_y(door_cell(i)) * SIM_CELL);
             continue;
         }
         pd->scale_x = f_lerp(pd->scale_x, 1.2f, 0.1f);
         pd->scale_y = f_lerp(pd->scale_y, 0.8f, 0.1f);
         float sprite_width = 16.0f * pd->scale_x;
         float sprite_height = 16.0f * pd->scale_y;
-        pd->x = (float)(sim_cell_x(d->cell) * SIM_CELL) -
+        pd->x = (float)(sim_cell_x(door_cell(i)) * SIM_CELL) -
                 (sprite_width * (pd->scale_x - 1.0f)) / 2.0f;
-        pd->y = (float)(sim_cell_y(d->cell) * SIM_CELL) -
+        pd->y = (float)(sim_cell_y(door_cell(i)) * SIM_CELL) -
                 sprite_height * (pd->scale_y - 1.0f);
     }
 

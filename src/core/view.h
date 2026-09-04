@@ -15,6 +15,8 @@
 
 #include "world.h"
 
+#define PRES_MAX_PARTS 64 /* mirrors DOG_MAX_CHAIN */
+#define PRES_MAX_DOORS 8 /* mirrors DOOR_MAX */
 #define PRES_MAX_BOXES 32 /* mirrors BOX_MAX */
 #define PRES_MAX_FLOWERS 64
 #define PRES_MAX_FLIES 8
@@ -74,12 +76,12 @@ typedef struct Pres {
 
     /* eased positions (pixels; dog/parts are sprite centres, cell + 8) */
     float dog_x, dog_y;
-    float part_x[SIM_MAX_CHAIN], part_y[SIM_MAX_CHAIN];
-    uint16_t part_cell[SIM_MAX_CHAIN];
-    int part_wiggle[SIM_MAX_CHAIN];
+    float part_x[PRES_MAX_PARTS], part_y[PRES_MAX_PARTS];
+    uint16_t part_cell[PRES_MAX_PARTS];
+    int part_wiggle[PRES_MAX_PARTS];
     float box_x[PRES_MAX_BOXES], box_y[PRES_MAX_BOXES];
 
-    PresDoor doors[SIM_MAX_DOORS];
+    PresDoor doors[PRES_MAX_DOORS];
 
     /* goal house pulse (oGoalUp count/count2 port) */
     int goal_count, goal_count2;

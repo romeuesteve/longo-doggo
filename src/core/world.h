@@ -26,19 +26,6 @@
 #define SIM_MAX_CELLS_H 16
 #define SIM_CELL_INDEX(cx, cy) ((uint16_t)((cy)*SIM_MAX_CELLS_W + (cx)))
 
-/* Fixed movement repeat: the original derived its held-key cadence from a
- * 2-tick alarm plus the OS key-repeat rate, which lands on one cell every
- * 2 ticks (30 cells/s) once a key is held.  The sim now owns the cadence
- * explicitly; a fresh press still steps immediately. */
-#define SIM_STEP_INTERVAL 2
-
-/* Dialogue box shrink after the final press (lerp 0.15 below 0.65 scale). */
-#define SIM_DIALOGUE_SHRINK_TICKS 34
-
-#define SIM_MAX_CHAIN 64 /* dog body parts (original LONGO_MAX_DOG_INS) */
-#define SIM_MAX_BUTTONS 16
-#define SIM_MAX_DOORS 8
-#define SIM_MAX_ZONE 16  /* cells covered by one placed object bbox */
 
 typedef struct SimInput {
     /* held directions (arrow keys and WASD merged by the front-end) */
@@ -57,42 +44,6 @@ typedef struct SimInput {
 #define SIM_PART_LEGS 0x2
 #define SIM_PART_BUTT 0x4
 
-typedef struct SimDog {
-    int alive;
-    int cx, cy;  /* head cell */
-    int dir;     /* 0 down, 90 right, 180 up, 270 left (GameMaker degrees) */
-    int play;    /* dialogue gating */
-    int length;  /* number of body parts */
-    uint16_t chain[SIM_MAX_CHAIN];  /* chain[0] is nearest the head */
-    uint8_t pflag[SIM_MAX_CHAIN];
-    int strain;       /* blocked on the last attempted step (logical only) */
-    int move_timer;   /* ticks until the next held-repeat step */
-    int bark_timer;   /* idle bark alarm, -1 = disabled (title only) */
-    int detached_cell; /* cell the tail vacated on the last step */
-} SimDog;
-
-/* Buttons cover one or two cells: the original places them straddling a
- * cell boundary, and anything overlapping the button rect pressed it.
- * zone = cells a 16x16 body (head/parts/holes/doors) presses;
- * box_zone additionally includes the straddle cell a box presses through
- * its 4px sprite lid. */
-typedef struct SimButton {
-    int alive;
-    int pressed;
-    uint16_t zone[SIM_MAX_ZONE];
-    int zone_count;
-    uint16_t box_zone[SIM_MAX_ZONE];
-    int box_zone_count;
-} SimButton;
-
-typedef struct SimDoor {
-    int alive;
-    int open;        /* all buttons pressed; cell stays solid until removed */
-    int open_timer;  /* the open animation ticks, then the door poofs */
-    uint16_t cell;
-} SimDoor;
-
-/* oTutorial dialogue state machine (texts ported verbatim). */
 typedef struct SimWorld {
     SimInput input; /* last fed input, readable by scripts via world_ptr() */
     int room_index;
@@ -101,15 +52,6 @@ typedef struct SimWorld {
     long tick;
     long room_loaded_tick; /* guards same-tick meta steps after a reload */
 
-    /* static solids: oBlock cells plus the goal house footprint */
-    uint8_t solid[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
-
-    SimDog dog;
-    SimButton buttons[SIM_MAX_BUTTONS];
-    int button_count;
-    int buttons_pressed;
-    SimDoor doors[SIM_MAX_DOORS];
-    int door_count;
 
     unsigned int rng;
 } SimWorld;
@@ -124,6 +66,8 @@ void sim_tick(SimWorld *w, const SimInput *input);
 
 bool cell_in_bounds(int cx, int cy);
 uint16_t cell_neighbour(uint16_t cell, int dir);
+float world_random(float max);
+float world_random_range(float lo, float hi);
 
 /* Cell helpers shared by the rules. */
 int sim_cell_x(uint16_t cell);
@@ -131,14 +75,11 @@ int sim_cell_y(uint16_t cell);
 uint16_t sim_cell_of(int cx, int cy);
 
 /* Entity-at-cell lookups (used by the rules and the presentation). */
-int sim_part_at(const SimWorld *w, uint16_t cell);
 
 /* Random in [0, max) / [lo, hi) from the sim's xorshift (cosmetic scatter). */
 float sim_random(SimWorld *w, float max);
 float sim_random_range(SimWorld *w, float lo, float hi);
 
-/* Dog movement, chain and pickup rules (sim_dog.c). */
-void sim_dog_step(SimWorld *w, const SimInput *input);
 
 /* Room order indices into longo_rooms[] (GeneralInfo.RoomOrder). */
 enum {

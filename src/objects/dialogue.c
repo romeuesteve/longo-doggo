@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../core/world.h"
+#include "dog.h"
 #include "items.h"
 #include "transition.h"
 
@@ -108,7 +109,7 @@ void dialogue_start(int room_index)
     } else {
         dlg.active = false;
     }
-    if (dlg.gates_play) world_ptr()->dog.play = 0;
+    if (dlg.gates_play) dog_set_play(false);
 }
 
 /* oTutorial Draw event port; the box scale easing is view-side. */
@@ -126,7 +127,7 @@ void dialogue_tick(void)
             dlg.index++;
         } else {
             dlg.release_ticks = 0;
-            if (dlg.gates_play) world_ptr()->dog.play = 1;
+            if (dlg.gates_play) dog_set_play(true);
         }
     }
 }

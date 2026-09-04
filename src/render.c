@@ -20,7 +20,10 @@
 #include "room_tiles.h"
 #include "sprites.h"
 
+#include "objects/button.h"
 #include "objects/box.h"
+#include "objects/door.h"
+#include "objects/dog.h"
 #include "objects/dialogue.h"
 #include "objects/house.h"
 #include "objects/transition.h"
@@ -643,17 +646,16 @@ static void draw_dog_world(LongoRender *render, const SimWorld *world,
 {
     const Color body = make_color_rgb(153, 108, 53);
     const Color outline = make_color_rgb(107, 61, 49);
-    const SimDog *dog = &world->dog;
     int tail_frame = flower_frame(pres);
 
     /* pass 1: legs, outline body, outline head circle */
-    for (int i = 0; i < dog->length; i++) {
+    for (int i = 0; i < dog_length(); i++) {
         float px = pres->part_x[i];
         float py = pres->part_y[i];
         float fx = i == 0 ? pres->dog_x : pres->part_x[i - 1];
         float fy = i == 0 ? pres->dog_y : pres->part_y[i - 1];
-        int is_first = (dog->pflag[i] & SIM_PART_FIRST) != 0;
-        int legs = (dog->pflag[i] & SIM_PART_LEGS) != 0;
+        int is_first = (dog_part_flags(i) & DOG_PART_FIRST) != 0;
+        int legs = (dog_part_flags(i) & DOG_PART_LEGS) != 0;
         if (legs) {
             float angle_amp = pres_part_legs_angle(pres, i);
             float legs_wave = wave_calc(-angle_amp, angle_amp, 0.2f, 0,
@@ -681,24 +683,24 @@ static void draw_dog_world(LongoRender *render, const SimWorld *world,
     }
 
     /* pass 2: fill body and tail sprite */
-    for (int i = 0; i < dog->length; i++) {
+    for (int i = 0; i < dog_length(); i++) {
         float px = pres->part_x[i];
         float py = pres->part_y[i];
         float fx = i == 0 ? pres->dog_x : pres->part_x[i - 1];
         float fy = i == 0 ? pres->dog_y : pres->part_y[i - 1];
-        int legs = (dog->pflag[i] & SIM_PART_LEGS) != 0;
+        int legs = (dog_part_flags(i) & DOG_PART_LEGS) != 0;
         draw_circle_color(px - 1.0f, py - 1.0f, 4.0f, body, body);
         draw_line_width_color((Vector2){ px - 1.0f, py - 1.0f },
                               (Vector2){ fx - 1.0f, fy - 1.0f }, 8.0f, body,
                               body);
-        if (legs && !(dog->pflag[i] & SIM_PART_FIRST)) {
+        if (legs && !(dog_part_flags(i) & DOG_PART_FIRST)) {
             draw_sprite_origin(render, LONGO_SPR_DOGTAIL, tail_frame,
                                px - 1.0f, py - 3.0f, 1.0f, 1.0f, 0.0f, WHITE,
                                1.0f);
         }
     }
 
-    draw_sprite_origin(render, dog_face_sprite(dog->dir), flower_frame(pres),
+    draw_sprite_origin(render, dog_face_sprite(dog_dir()), flower_frame(pres),
                        pres->dog_x, pres->dog_y, 1.0f, 1.0f, 0.0f, WHITE,
                        1.0f);
 }
@@ -710,19 +712,18 @@ static void draw_dog_world(LongoRender *render, const SimWorld *world,
 static void build_shadow_surface(LongoRender *render, const SimWorld *world,
                                  const Pres *pres)
 {
-    const SimDog *dog = &world->dog;
     Color black = BLACK;
 
     BeginTextureMode(render->shadow_surface);
     ClearBackground(BLANK);
 
-    for (int i = 0; i < dog->length; i++) {
+    for (int i = 0; i < dog_length(); i++) {
         float px = pres->part_x[i];
         float py = pres->part_y[i];
         float fx = i == 0 ? pres->dog_x : pres->part_x[i - 1];
         float fy = i == 0 ? pres->dog_y : pres->part_y[i - 1];
-        int is_first = (dog->pflag[i] & SIM_PART_FIRST) != 0;
-        int legs = (dog->pflag[i] & SIM_PART_LEGS) != 0;
+        int is_first = (dog_part_flags(i) & DOG_PART_FIRST) != 0;
+        int legs = (dog_part_flags(i) & DOG_PART_LEGS) != 0;
         if (legs) {
             float angle_amp = pres_part_legs_angle(pres, i);
             float legs_wave = wave_calc(-angle_amp, angle_amp, 0.2f, 0,
@@ -744,8 +745,8 @@ static void build_shadow_surface(LongoRender *render, const SimWorld *world,
                    (Vector2){ fx - 1.0f, fy + 4.0f }, 10.0f, black);
     }
 
-    if (dog->alive) {
-        draw_sprite_origin(render, dog_face_sprite(dog->dir),
+    if (dog_alive()) {
+        draw_sprite_origin(render, dog_face_sprite(dog_dir()),
                            flower_frame(pres), pres->dog_x, pres->dog_y + 5.0f,
                            1.0f, 1.0f, 0.0f, black, 1.0f);
     }
@@ -783,23 +784,21 @@ static void build_shadow_surface(LongoRender *render, const SimWorld *world,
                            pres->box_y[i] + 5.0f, 1.0f, 1.0f, 0.0f, black,
                            1.0f);
     }
-    for (int i = 0; i < world->door_count; i++) {
-        if (!world->doors[i].alive) continue;
+    for (int i = 0; i < door_count(); i++) {
+        if (!door_alive(i)) continue;
         draw_sprite_origin(render, LONGO_SPR_DOOR, 0,
-                           (float)(sim_cell_x(world->doors[i].cell) * SIM_CELL),
-                           (float)(sim_cell_y(world->doors[i].cell) * SIM_CELL + 22.0f),
+                           (float)(sim_cell_x(door_cell(i)) * SIM_CELL),
+                           (float)(sim_cell_y(door_cell(i)) * SIM_CELL + 22.0f),
                            1.0f, -0.4f, 0.0f, black, 1.0f);
     }
-    for (int i = 0; i < world->button_count; i++) {
-        if (!world->buttons[i].alive) continue;
-        const SimButton *b = &world->buttons[i];
-        /* zone cells carry the button's bbox: draw at the first cell */
+    for (int i = 0; i < button_count(); i++) {
+        if (!button_alive(i)) continue;
         draw_sprite_origin(render,
-                           b->pressed ? LONGO_SPR_BUTTONPRESSED
-                                      : LONGO_SPR_BUTTON,
+                           button_pressed(i) ? LONGO_SPR_BUTTONPRESSED
+                                             : LONGO_SPR_BUTTON,
                            0,
-                           (float)(sim_cell_x(b->zone[0]) * SIM_CELL),
-                           (float)(sim_cell_y(b->zone[0]) * SIM_CELL + 4.0f),
+                           (float)(sim_cell_x(button_zone_cell(i, 0)) * SIM_CELL),
+                           (float)(sim_cell_y(button_zone_cell(i, 0)) * SIM_CELL + 4.0f),
                            1.0f, 1.0f, 0.0f, black, 1.0f);
     }
     if (pres->has_title_decor) {
@@ -1161,7 +1160,7 @@ static void draw_item(LongoRender *render, const SimWorld *world,
         break;
     }
     case SLOT_DOG:
-        if (world->dog.alive) draw_dog_world(render, world, pres);
+        if (dog_alive()) draw_dog_world(render, world, pres);
         break;
     case SLOT_BOX:
         if (box_alive(item->index))
@@ -1201,26 +1200,24 @@ static void draw_item(LongoRender *render, const SimWorld *world,
                            1.0f, 0.0f, WHITE, 1.0f);
         break;
     }
-    case SLOT_BUTTON: {
-        const SimButton *b = &world->buttons[item->index];
-        if (b->alive)
+    case SLOT_BUTTON:
+        if (button_alive(item->index))
             draw_sprite_origin(render,
-                               b->pressed ? LONGO_SPR_BUTTONPRESSED
-                                          : LONGO_SPR_BUTTON,
+                               button_pressed(item->index)
+                                   ? LONGO_SPR_BUTTONPRESSED
+                                   : LONGO_SPR_BUTTON,
                                frame_of(pres->button_clock),
-                               (float)(sim_cell_x(b->zone[0]) * SIM_CELL),
-                               (float)(sim_cell_y(b->zone[0]) * SIM_CELL),
+                               (float)(sim_cell_x(button_zone_cell(item->index, 0)) * SIM_CELL),
+                               (float)(sim_cell_y(button_zone_cell(item->index, 0)) * SIM_CELL),
                                1.0f, 1.0f, 0.0f, WHITE, 1.0f);
         break;
-    }
-    case SLOT_DOOR: {
-        const SimDoor *d = &world->doors[item->index];
-        const PresDoor *pd = &pres->doors[item->index];
-        if (d->alive)
+    case SLOT_DOOR:
+        if (door_alive(item->index)) {
+            const PresDoor *pd = &pres->doors[item->index];
             draw_sprite_origin(render, LONGO_SPR_DOOR, 0, pd->x, pd->y,
                                pd->scale_x, pd->scale_y, 0.0f, WHITE, 1.0f);
+        }
         break;
-    }
     case SLOT_FLOWER:
         draw_sprite_origin(render, LONGO_SPR_FLOWER,
                            frame_of(pres->flower_clock),
@@ -1260,7 +1257,7 @@ static void draw_item(LongoRender *render, const SimWorld *world,
     }
     case SLOT_SHADOWS: {
         /* composited here in the depth order (oShadows depth 210) */
-        if (world->dog.alive) {
+        if (dog_alive()) {
             Rectangle src = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
                               -(float)LONGO_LOGICAL_HEIGHT };
             Color tint = { 255, 255, 255, (unsigned char)(255 * 0.2f) };
@@ -1283,7 +1280,7 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
                         const Pres *pres)
 {
     DrawItem items[20 + BOX_MAX + HOLE_MAX + ITEMS_MAX * 2 +
-                   SIM_MAX_BUTTONS + SIM_MAX_DOORS + PRES_MAX_FLOWERS +
+                   BUTTON_MAX + DOOR_MAX + PRES_MAX_FLOWERS +
                    PRES_MAX_FLIES + PRES_MAX_SMOKE + PRES_MAX_POPUPS +
                    PRES_MAX_BARKS + PRES_MAX_SINKS];
     int item_count = 0;
@@ -1309,7 +1306,7 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
     }
     if (pres->shadows_present)
         items[item_count++] = (DrawItem){ 210, 3, SLOT_SHADOWS, 0 };
-    if (world->dog.alive) items[item_count++] = (DrawItem){ 0, 4, SLOT_DOG, 0 };
+    if (dog_alive()) items[item_count++] = (DrawItem){ 0, 4, SLOT_DOG, 0 };
     for (int i = 0; i < box_count(); i++) {
         if (!box_alive(i)) continue;
         items[item_count++] = (DrawItem){
@@ -1326,11 +1323,11 @@ void longo_render_frame(LongoRender *render, const SimWorld *world,
             items[item_count++] = (DrawItem){ 100, 90 + i, SLOT_SKULL, i };
     for (int i = 0; i < hole_count(); i++)
         items[item_count++] = (DrawItem){ 200, 130 + i, SLOT_HOLE, i };
-    for (int i = 0; i < world->button_count; i++)
-        if (world->buttons[i].alive)
+    for (int i = 0; i < button_count(); i++)
+        if (button_alive(i))
             items[item_count++] = (DrawItem){ 200, 150 + i, SLOT_BUTTON, i };
-    for (int i = 0; i < world->door_count; i++)
-        if (world->doors[i].alive)
+    for (int i = 0; i < door_count(); i++)
+        if (door_alive(i))
             items[item_count++] = (DrawItem){ 100, 170 + i, SLOT_DOOR, i };
     for (int i = 0; i < pres->flower_count; i++)
         items[item_count++] = (DrawItem){ 200, 180 + i, SLOT_FLOWER, i };

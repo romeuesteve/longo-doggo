@@ -6,7 +6,10 @@
  */
 #include "world.h"
 
+#include "../objects/button.h"
 #include "../objects/box.h"
+#include "../objects/door.h"
+#include "../objects/dog.h"
 #include "../objects/dialogue.h"
 #include "../objects/house.h"
 #include "../objects/title.h"
@@ -58,13 +61,9 @@ uint16_t cell_neighbour(uint16_t cell, int dir)
     }
 }
 
-static int cell_solid(const SimWorld *w, uint16_t cell)
+float world_random(float max)
 {
-    return w->solid[cell] != 0;
-}
-
-float sim_random(SimWorld *w, float max)
-{
+    SimWorld *w = &game_world;
     unsigned int x = w->rng;
     x ^= x << 13;
     x ^= x >> 17;
@@ -73,31 +72,14 @@ float sim_random(SimWorld *w, float max)
     return (float)(x & 0xFFFFFF) / (float)0x1000000 * max;
 }
 
-float sim_random_range(SimWorld *w, float lo, float hi)
+float world_random_range(float lo, float hi)
 {
-    return lo + sim_random(w, hi - lo);
+    return lo + world_random(hi - lo);
 }
-
-static float f_lerp(float a, float b, float t) { return a + (b - a) * t; }
 
 /* ------------------------------------------------------------------ */
 /* Entity lookups (linear scans; the counts are tiny)                  */
 /* ------------------------------------------------------------------ */
-
-static SimDoor *door_at(SimWorld *w, uint16_t cell)
-{
-    for (int i = 0; i < w->door_count; i++)
-        if (w->doors[i].alive && w->doors[i].cell == cell) return &w->doors[i];
-    return NULL;
-}
-
-int sim_part_at(const SimWorld *w, uint16_t cell)
-{
-    if (!w->dog.alive) return -1;
-    for (int i = 0; i < w->dog.length; i++)
-        if (w->dog.chain[i] == cell) return i;
-    return -1;
-}
 
 /* ------------------------------------------------------------------ */
 /* Room loading                                                        */
@@ -129,7 +111,7 @@ static void compute_zone_ex(SimWorld *w, uint16_t *zone, int *count,
             if (!hit && with_lid)
                 hit = rects_strictly_overlap(rx, ry + box_lid_dy, SIM_CELL,
                                              SIM_CELL, bx, by, bw, bh);
-            if (hit && *count < SIM_MAX_ZONE) zone[(*count)++] = cell;
+            if (hit && *count < BUTTON_ZONE_MAX) zone[(*count)++] = cell;
         }
     }
 }
@@ -151,52 +133,9 @@ static void mark_solid_footprint(SimWorld *w, float bx, float by, float bw,
             float ry = (float)cy * SIM_CELL;
             if (rects_strictly_overlap(rx, ry, SIM_CELL, SIM_CELL, bx, by, bw,
                                        bh))
-                w->solid[sim_cell_of(cx, cy)] = 1;
+                solid_place(sim_cell_of(cx, cy), SOLID_GOAL, 0);
         }
     }
-}
-
-static void spawn_dog(SimWorld *w, float x, float y)
-{
-    SimDog *dog = &w->dog;
-    int cx = (int)floorf((x - 8.0f) / SIM_CELL);
-    int cy = (int)floorf((y - 8.0f) / SIM_CELL);
-    dog->alive = 1;
-    dog->cx = cx;
-    dog->cy = cy;
-    dog->dir = 180; /* facing up, chain trailing below */
-    dog->play = 1;
-    dog->length = 5;
-    dog->strain = 0;
-    dog->move_timer = 0;
-    dog->bark_timer = -1;
-    for (int i = 0; i < SIM_MAX_CHAIN; i++) dog->chain[i] = 0;
-    for (int i = 0; i < dog->length; i++) {
-        dog->chain[i] = sim_cell_of(cx, cy + 1 + i);
-        dog->pflag[i] = SIM_PART_BUTT;
-        if (i == 0) dog->pflag[i] |= SIM_PART_FIRST | SIM_PART_LEGS;
-        if (i == dog->length - 1) dog->pflag[i] = SIM_PART_LEGS;
-    }
-    dog->detached_cell = dog->chain[dog->length - 1];
-}
-
-/* The title room rearranges the dog into an S-curve (port of the oTitle
- * create event) and arms its idle bark. */
-static void arrange_title_dog(SimWorld *w)
-{
-    /* head first, then the five parts of the S-curve (pixel coords in the
-     * oTitle create event, snapped to cells) */
-    static const int cells[6][2] = {
-        { 10, 10 }, { 10, 9 }, { 9, 9 }, { 8, 9 }, { 8, 10 }, { 9, 10 }
-    };
-    SimDog *dog = &w->dog;
-    if (!dog->alive) return;
-    dog->cx = cells[0][0];
-    dog->cy = cells[0][1];
-    dog->dir = 0;
-    dog->bark_timer = 10;
-    for (int i = 0; i < dog->length; i++)
-        dog->chain[i] = sim_cell_of(cells[i + 1][0], cells[i + 1][1]);
 }
 
 /* Dialogue texts, ported verbatim from the oTutorial create event. */
@@ -206,7 +145,7 @@ static void load_room(SimWorld *w, int room_index)
     float dog_x = 0, dog_y = 0;
     int have_dog = 0;
     int title = 0;
-    float tutorial_x = 0, tutorial_y = 0;
+    float tutorial_x = 0;
     int have_tutorial = 0;
 
     w->room_index = room_index;
@@ -217,17 +156,14 @@ static void load_room(SimWorld *w, int room_index)
     if (w->cells_h > SIM_MAX_CELLS_H) w->cells_h = SIM_MAX_CELLS_H;
     w->room_loaded_tick = w->tick;
 
-    memset(w->solid, 0, sizeof(w->solid));
-    memset(&w->dog, 0, sizeof(w->dog));
+    solid_reset();
+    dog_reset();
     box_reset();
     hole_reset();
     items_reset();
-    memset(w->buttons, 0, sizeof(w->buttons));
-    w->button_count = 0;
-    w->buttons_pressed = 0;
-    memset(w->doors, 0, sizeof(w->doors));
-    w->door_count = 0;
     house_reset();
+    button_reset();
+    door_reset();
     title_reset();
     dialogue_reset();
 
@@ -237,7 +173,7 @@ static void load_room(SimWorld *w, int room_index)
         case LONGO_OBJ_BLOCK: {
             int cx = (int)floorf(p->x / SIM_CELL);
             int cy = (int)floorf(p->y / SIM_CELL);
-            if (in_bounds(w, cx, cy)) w->solid[sim_cell_of(cx, cy)] = 1;
+            if (in_bounds(w, cx, cy)) solid_place(sim_cell_of(cx, cy), SOLID_WALL, 0);
             break;
         }
         case LONGO_OBJ_DOG:
@@ -261,25 +197,19 @@ static void load_room(SimWorld *w, int room_index)
             skull_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
                                     (int)floorf(p->y / SIM_CELL)));
             break;
-        case LONGO_OBJ_BUTTON:
-            if (w->button_count < SIM_MAX_BUTTONS) {
-                SimButton *b = &w->buttons[w->button_count++];
-                b->alive = 1;
-                b->pressed = 0;
-                compute_zone(w, b->zone, &b->zone_count, p->x, p->y, 16, 16);
-                compute_zone_ex(w, b->box_zone, &b->box_zone_count, p->x,
-                                p->y, 16, 16, 1);
-            }
+        case LONGO_OBJ_BUTTON: {
+            uint16_t zone[BUTTON_ZONE_MAX];
+            uint16_t box_zone[BUTTON_ZONE_MAX];
+            int zone_count, box_zone_count;
+            compute_zone(w, zone, &zone_count, p->x, p->y, 16, 16);
+            compute_zone_ex(w, box_zone, &box_zone_count, p->x, p->y, 16, 16,
+                            1);
+            button_place(zone, zone_count, box_zone, box_zone_count);
             break;
+        }
         case LONGO_OBJ_DOOR:
-            if (w->door_count < SIM_MAX_DOORS) {
-                SimDoor *d = &w->doors[w->door_count++];
-                d->alive = 1;
-                d->open = 0;
-                d->open_timer = 0;
-                d->cell = sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                      (int)floorf(p->y / SIM_CELL));
-            }
+            door_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
+                                   (int)floorf(p->y / SIM_CELL)));
             break;
         case LONGO_OBJ_GOAL: {
             /* placed directly (title/tutorial rooms); oGoal's sprite is the
@@ -323,7 +253,6 @@ static void load_room(SimWorld *w, int room_index)
             break;
         case LONGO_OBJ_TUTORIAL:
             tutorial_x = p->x;
-            tutorial_y = p->y;
             have_tutorial = 1;
             break;
         default:
@@ -333,8 +262,9 @@ static void load_room(SimWorld *w, int room_index)
         }
     }
 
-    if (have_dog) spawn_dog(w, dog_x, dog_y);
-    if (title) arrange_title_dog(w);
+    if (have_dog) dog_place(dog_x, dog_y);
+    if (title) dog_title_arrangement();
+    (void)tutorial_x;
     if (have_tutorial) dialogue_start(room_index);
     /* oGoalUp create defaults remain to 1; the first house_tick recomputes
      * it to dog.length - 2.  Initialising here prevents the win from
@@ -343,77 +273,6 @@ static void load_room(SimWorld *w, int room_index)
 
 /* ------------------------------------------------------------------ */
 /* Buttons, doors, goal (step + draw-mutation ports)                   */
-/* ------------------------------------------------------------------ */
-
-static void update_buttons(SimWorld *w)
-{
-    for (int i = 0; i < w->button_count; i++) {
-        SimButton *b = &w->buttons[i];
-        int pressed = 0;
-        /* boxes press through the lid zone; everything else through the
-         * body zone */
-        for (int z = 0; z < b->box_zone_count && !pressed; z++) {
-            uint16_t cell = b->box_zone[z];
-            if (cell_solid(w, cell)) continue;
-            if (box_index_at(cell) >= 0) pressed = 1;
-        }
-        for (int z = 0; z < b->zone_count && !pressed; z++) {
-            uint16_t cell = b->zone[z];
-            if (cell_solid(w, cell)) continue;
-            {
-                int hi = hole_index_at(cell);
-                if ((hi >= 0 && !hole_is_full(hi)) || box_index_at(cell) >= 0 ||
-                    door_at(w, cell))
-                    pressed = 1;
-            }
-            if (sim_part_at(w, cell) >= 0) pressed = 1;
-            if (w->dog.alive && sim_cell_of(w->dog.cx, w->dog.cy) == cell)
-                pressed = 1;
-        }
-        if (pressed && !b->pressed) {
-            events_sound(SND_BUTTON, 0);
-            w->buttons_pressed++;
-        } else if (!pressed && b->pressed) {
-            events_sound(SND_WRONG, 0);
-            w->buttons_pressed--;
-        }
-        b->pressed = pressed;
-    }
-}
-
-/* The open animation eases scale 1 -> 1.2 at 0.1/tick and poofs past 1.15
- * (14 ticks); the cell stays solid for that duration, like the original. */
-#define SIM_DOOR_OPEN_TICKS 14
-
-static void update_doors(SimWorld *w)
-{
-    for (int i = 0; i < w->door_count; i++) {
-        SimDoor *d = &w->doors[i];
-        if (!d->alive) continue;
-        if (!d->open && w->buttons_pressed == w->button_count) {
-            d->open = 1;
-            d->open_timer = SIM_DOOR_OPEN_TICKS;
-        }
-        if (d->open) {
-            if (--d->open_timer <= 0) {
-                d->alive = 0;
-                events_fx(FX_SMOKE_BURST,
-                          (float)(sim_cell_x(d->cell) * SIM_CELL),
-                          (float)(sim_cell_y(d->cell) * SIM_CELL), 0, 0, 0, 7,
-                          0);
-                events_sound(SND_POOF, 0);
-            }
-        }
-    }
-}
-
-static void update_goal(SimWorld *w)
-{
-    house_tick(w->dog.alive ? w->dog.length : -1);
-}
-
-/* ------------------------------------------------------------------ */
-/* Meta state machines (title, dialogue, transition)                   */
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
@@ -428,12 +287,12 @@ void sim_tick(SimWorld *w, const SimInput *input)
     events_clear();
 
     /* 1. dog step + pickups (oDog Step, then collision events) */
-    sim_dog_step(w, input);
+    dog_tick(&w->input);
 
-    /* 2. world object steps + draw-mutation ports */
-    update_buttons(w);
-    update_doors(w);
-    update_goal(w);
+    /* 2. world object steps */
+    button_tick();
+    door_tick(button_all_pressed());
+    house_tick(dog_alive() ? dog_length() : -1);
 
     /* 3. title -> transition request */
     if (w->room_loaded_tick != w->tick) title_tick();
