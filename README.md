@@ -18,7 +18,7 @@ src/core/     world.c     room load, the explicit tick order, draw order
               level_data.*  room tables (source of truth)
 src/objects/  dog.c box.c hole.c door.c button.c items.c house.c
               fx.c butterfly.c flower.c dialogue.c transition.c title.c
-src/render.c  raylib backend: assets, surfaces, bloom, replay
+src/render.c  raylib backend: assets, surfaces, replay
               (UI text is Renogare at window scale; the house counter
               keeps the pixel digits font)
 src/main.c    platform glue: window, input, audio

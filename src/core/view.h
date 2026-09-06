@@ -25,7 +25,7 @@
 typedef enum ViewLayer {
     VIEW_SHADOW = 0, /* shadow silhouette, composited at 0.2 alpha */
     VIEW_WORLD,      /* application surface (depth-sorted) */
-    VIEW_GUI         /* GUI surface: bloom composite + dialogue/wipes */
+    VIEW_GUI         /* GUI surface: world composite + dialogue/wipes */
 } ViewLayer;
 
 /* Draw-order depths (larger depth draws earlier, i.e. further back).

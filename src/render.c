@@ -6,10 +6,10 @@
  * item lists:
  *   - application surface at the 304x208 logical resolution
  *   - global.shadow_surf rebuilt per frame, composited at 0.2 alpha
- *   - GUI surface: obj_bloom_appsrf bloom composite, then GUI items
+ *   - GUI surface: the application surface, then GUI items
  *
- * Render targets never nest: the shadow surface, application surface,
- * bloom ping-pong passes and GUI surface are all filled top-level.
+ * Render targets never nest: the shadow surface, application surface
+ * and GUI surface are all filled top-level.
  */
 #include "render.h"
 #include "room_tiles.h"
@@ -120,94 +120,57 @@ static bool load_sprite(LongoRender *render, LongoSprite sprite)
     return render->sprite_loaded[sprite];
 }
 
-/* The pixelated bitmap digits font, used only for the in-world house
- * counter (font_id 2) so the number stays crisp with the game. */
-static bool load_bitmap_font(LongoRender *render, LongoBitmapFont *font,
-                             const char *image_name, const char *glyph_name)
+/* The pixelated digits font, used only for the in-world house counter
+ * (font_id 2), which always draws a plain "%d".  The ten digit cells are
+ * the exported glyphs_FontDigits.csv metrics (5x13 glyphs, fixed 6px
+ * advance); no CSV parsing needed. */
+static void load_digits_font(LongoRender *render)
 {
-    char image_path[1024];
-    char glyph_path[1024];
-    char *csv;
-    char *line;
-    bool first_line = true;
+    static const struct {
+        Rectangle source;
+        unsigned char offset;
+    } digits[10] = {
+        { { 108, 32, 5, 13 }, 0 }, { { 102, 32, 4, 13 }, 1 },
+        { {  95, 32, 5, 13 }, 0 }, { {  88, 32, 5, 13 }, 0 },
+        { {  81, 32, 5, 13 }, 0 }, { {  11, 47, 4, 13 }, 1 },
+        { {  83, 47, 5, 13 }, 0 }, { {  90, 47, 5, 13 }, 0 },
+        { {  97, 47, 5, 13 }, 0 }, { { 113, 62, 5, 13 }, 0 },
+    };
+    LongoDigitsFont *font = &render->font_digits;
+    char path[1024];
 
-    if (render == NULL || font == NULL) return false;
-    memset(font, 0, sizeof(*font));
-    font->em_size = 8;
-    font->line_height = 12;
-
-    snprintf(image_path, sizeof(image_path), "fonts/%s", image_name);
-    make_asset_path(render, image_path, image_path, sizeof(image_path));
-    if (!file_exists(image_path)) return false;
-    font->texture = LoadTexture(image_path);
-    if (font->texture.id == 0) return false;
+    snprintf(path, sizeof(path), "fonts/FontDigits.png");
+    make_asset_path(render, path, path, sizeof(path));
+    if (!file_exists(path)) return;
+    font->texture = LoadTexture(path);
+    if (font->texture.id == 0) return;
     SetTextureFilter(font->texture, TEXTURE_FILTER_POINT);
-
-    make_asset_path(render, glyph_name, glyph_path, sizeof(glyph_path));
-    csv = LoadFileText(glyph_path);
-    if (csv == NULL) {
-        UnloadTexture(font->texture);
-        font->texture = (Texture2D){ 0 };
-        return false;
+    for (int i = 0; i < 10; i++) {
+        font->glyph[i].source = digits[i].source;
+        font->glyph[i].offset = digits[i].offset;
     }
-    line = csv;
-    while (line != NULL && *line != '\0') {
-        char *end = strchr(line, '\n');
-        int character, sx, sy, sw, sh, shift, offset;
-        if (end != NULL) *end = '\0';
-        if (first_line) {
-            int em_size;
-            if (sscanf(line, "\"%*[^\"]\";%d", &em_size) == 1 && em_size > 0)
-                font->em_size = em_size;
-            first_line = false;
-        } else if (sscanf(line, "%d;%d;%d;%d;%d;%d;%d", &character, &sx, &sy,
-                          &sw, &sh, &shift, &offset) == 7 &&
-                   character >= 0 && character < LONGO_BITMAP_FONT_GLYPHS) {
-            LongoBitmapGlyph *glyph = &font->glyphs[character];
-            glyph->source = (Rectangle){ (float)sx, (float)sy, (float)sw,
-                                         (float)sh };
-            glyph->advance = shift;
-            glyph->offset = offset;
-            glyph->present = true;
-            if (sh > font->line_height) font->line_height = sh;
-        }
-        if (end == NULL) break;
-        line = end + 1;
-    }
-    UnloadFileText(csv);
     font->loaded = true;
-    return true;
 }
 
-static float bitmap_text_width(const LongoBitmapFont *font, const char *text)
-{
-    float width = 0.0f;
-    if (font == NULL || text == NULL) return 0.0f;
-    for (const unsigned char *c = (const unsigned char *)text; *c; ++c) {
-        if (*c < LONGO_BITMAP_FONT_GLYPHS && font->glyphs[*c].present)
-            width += font->glyphs[*c].advance;
-        else
-            width += 4.0f;
-    }
-    return width;
-}
-
-static void draw_bitmap_text(const LongoBitmapFont *font, const char *text,
-                             float x, float y, bool centered, Color color)
+/* Centered on (x, y): the counter text is always a "%d" number. */
+static void draw_digits_text(const LongoDigitsFont *font, const char *text,
+                             float x, float y, Color color)
 {
     if (font == NULL || !font->loaded || text == NULL) return;
-    if (centered) x -= bitmap_text_width(font, text) * 0.5f;
-    for (const unsigned char *c = (const unsigned char *)text; *c; ++c) {
-        if (*c >= LONGO_BITMAP_FONT_GLYPHS || !font->glyphs[*c].present) {
-            x += 4.0f;
+    int len = (int)strlen(text);
+    x -= (float)len * 3.0f; /* fixed 6px advance */
+    for (int i = 0; i < len; i++) {
+        char c = text[i];
+        if (c < '0' || c > '9') {
+            x += 6.0f;
             continue;
         }
-        const LongoBitmapGlyph *g = &font->glyphs[*c];
-        Rectangle dest = { x, y + (float)g->offset, (float)g->source.width,
-                           (float)g->source.height };
-        DrawTexturePro(font->texture, g->source, dest, (Vector2){ 0, 0 }, 0.0f,
+        const Rectangle *src = &font->glyph[c - '0'].source;
+        Rectangle dest = { x, y + (float)font->glyph[c - '0'].offset,
+                           src->width, src->height };
+        DrawTexturePro(font->texture, *src, dest, (Vector2){ 0, 0 }, 0.0f,
                        color);
-        x += (float)g->advance;
+        x += 6.0f;
     }
 }
 
@@ -238,76 +201,9 @@ bool longo_render_init(LongoRender *render, const char *asset_root)
                                             LONGO_LOGICAL_HEIGHT);
     render->shadow_surface = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
                                                LONGO_LOGICAL_HEIGHT);
-    render->bloom_ping = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
-                                           LONGO_LOGICAL_HEIGHT);
-    render->bloom_pong = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
-                                           LONGO_LOGICAL_HEIGHT);
     SetTextureFilter(render->app_surface.texture, TEXTURE_FILTER_POINT);
     SetTextureFilter(render->gui_surface.texture, TEXTURE_FILTER_POINT);
     SetTextureFilter(render->shadow_surface.texture, TEXTURE_FILTER_POINT);
-    SetTextureFilter(render->bloom_ping.texture, TEXTURE_FILTER_BILINEAR);
-    SetTextureFilter(render->bloom_pong.texture, TEXTURE_FILTER_BILINEAR);
-
-    render->bloom_lum_shader = LoadShaderFromMemory(NULL,
-        "#version 330\n"
-        "in vec2 fragTexCoord;\n"
-        "out vec4 fragColor;\n"
-        "uniform sampler2D texture0;\n"
-        "uniform float threshold;\n"
-        "uniform float range;\n"
-        "void main() {\n"
-        "    vec4 c = texture(texture0, fragTexCoord);\n"
-        "    float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));\n"
-        "    float f = smoothstep(threshold, threshold + range, lum);\n"
-        "    fragColor = vec4(c.rgb * f, c.a * f);\n"
-        "}\n");
-    render->blur_shader = LoadShaderFromMemory(NULL,
-        "#version 330\n"
-        "in vec2 fragTexCoord;\n"
-        "out vec4 fragColor;\n"
-        "uniform sampler2D texture0;\n"
-        "uniform vec2 texel_size;\n"
-        "uniform vec2 blur_vector;\n"
-        "uniform float blur_steps;\n"
-        "uniform float sigma;\n"
-        "void main() {\n"
-        "    vec4 total = vec4(0.0);\n"
-        "    float weights = 0.0;\n"
-        "    int n = int(blur_steps);\n"
-        "    for (int i = -n; i <= n; i++) {\n"
-        "        float w = exp(-0.5 * float(i * i) / (sigma * sigma + 1e-6));\n"
-        "        total += texture(texture0, fragTexCoord +\n"
-        "                   blur_vector * texel_size * float(i)) * w;\n"
-        "        weights += w;\n"
-        "    }\n"
-        "    fragColor = total / weights;\n"
-        "}\n");
-    render->bloom_blend_shader = LoadShaderFromMemory(NULL,
-        "#version 330\n"
-        "in vec2 fragTexCoord;\n"
-        "out vec4 fragColor;\n"
-        "uniform sampler2D texture0;\n"
-        "uniform sampler2D bloom_texture;\n"
-        "uniform float bloom_intensity;\n"
-        "void main() {\n"
-        "    vec4 base = texture(texture0, fragTexCoord);\n"
-        "    vec4 bloom = texture(bloom_texture, fragTexCoord);\n"
-        "    fragColor = vec4(base.rgb + bloom.rgb * bloom_intensity, base.a);\n"
-        "}\n");
-    render->lum_threshold_loc = GetShaderLocation(render->bloom_lum_shader,
-                                                  "threshold");
-    render->lum_range_loc = GetShaderLocation(render->bloom_lum_shader, "range");
-    render->blur_steps_loc = GetShaderLocation(render->blur_shader,
-                                               "blur_steps");
-    render->blur_sigma_loc = GetShaderLocation(render->blur_shader, "sigma");
-    render->blur_vector_loc = GetShaderLocation(render->blur_shader,
-                                                "blur_vector");
-    render->blur_texel_loc = GetShaderLocation(render->blur_shader,
-                                               "texel_size");
-    render->blend_intensity_loc = GetShaderLocation(render->bloom_blend_shader,
-                                                    "bloom_intensity");
-    render->blend_bloom_tex_loc = GetShaderLocation(render->bloom_blend_shader,
-                                                    "bloom_texture");
 
     for (int s = 1; s < 32; s++) {
         if (longo_sprite_name(s) != NULL) load_sprite(render, (LongoSprite)s);
@@ -324,8 +220,7 @@ bool longo_render_init(LongoRender *render, const char *asset_root)
         }
     }
 
-    load_bitmap_font(render, &render->font_digits, "FontDigits.png",
-                     "fonts/glyphs_FontDigits.csv");
+    load_digits_font(render);
 
     if (!IsAudioDeviceReady()) InitAudioDevice();
     render->audio_ready = IsAudioDeviceReady();
@@ -361,11 +256,6 @@ void longo_render_shutdown(LongoRender *render)
     UnloadRenderTexture(render->app_surface);
     UnloadRenderTexture(render->gui_surface);
     UnloadRenderTexture(render->shadow_surface);
-    UnloadRenderTexture(render->bloom_ping);
-    UnloadRenderTexture(render->bloom_pong);
-    UnloadShader(render->bloom_lum_shader);
-    UnloadShader(render->blur_shader);
-    UnloadShader(render->bloom_blend_shader);
     memset(render, 0, sizeof(*render));
 }
 
@@ -757,11 +647,11 @@ static void replay_item(LongoRender *render, const SimWorld *world,
                       to_ray_color(it->color));
         break;
     case VIEW_ITEM_TEXT:
-        if (it->font_id == 2 && render->font_digits.loaded) {
+        if (it->font_id == 2) {
             /* the house counter keeps the pixel digits font and lives
              * inside the low-res surface with everything else */
-            draw_bitmap_text(&render->font_digits, it->text, it->x, it->y,
-                             true, to_ray_color(it->color));
+            draw_digits_text(&render->font_digits, it->text, it->x, it->y,
+                             to_ray_color(it->color));
         }
         break;
     case VIEW_ITEM_TEXT_WRAPPED:
@@ -803,66 +693,6 @@ static void replay_layer(LongoRender *render, const SimWorld *world,
         replay_item(render, world, &items[i]);
 }
 
-/* obj_bloom_appsrf Draw GUI Begin: threshold -> blur -> composite. */
-static void bloom_bright_pass(LongoRender *render)
-{
-    float threshold = 0.8f;
-    float range = 0.3f;
-
-    BeginTextureMode(render->bloom_ping);
-    ClearBackground(BLANK);
-    BeginShaderMode(render->bloom_lum_shader);
-    SetShaderValue(render->bloom_lum_shader, render->lum_threshold_loc,
-                   &threshold, SHADER_UNIFORM_FLOAT);
-    SetShaderValue(render->bloom_lum_shader, render->lum_range_loc, &range,
-                   SHADER_UNIFORM_FLOAT);
-    DrawTexturePro(render->app_surface.texture, rect_flip(), rect_full(),
-                   (Vector2){ 0, 0 }, 0.0f, WHITE);
-    EndShaderMode();
-    EndTextureMode();
-}
-
-static void bloom_blur_pass(LongoRender *render, RenderTexture2D *src,
-                            RenderTexture2D *dst, float vec_x, float vec_y)
-{
-    float blur_steps = 5.0f;
-    float sigma = 0.2f;
-    float texel[2] = { 1.0f / (float)LONGO_LOGICAL_WIDTH,
-                       1.0f / (float)LONGO_LOGICAL_HEIGHT };
-    float vec[2] = { vec_x, vec_y };
-
-    BeginTextureMode(*dst);
-    ClearBackground(BLANK);
-    BeginShaderMode(render->blur_shader);
-    SetShaderValue(render->blur_shader, render->blur_steps_loc, &blur_steps,
-                   SHADER_UNIFORM_FLOAT);
-    SetShaderValue(render->blur_shader, render->blur_sigma_loc, &sigma,
-                   SHADER_UNIFORM_FLOAT);
-    SetShaderValue(render->blur_shader, render->blur_vector_loc, vec,
-                   SHADER_UNIFORM_VEC2);
-    SetShaderValue(render->blur_shader, render->blur_texel_loc, texel,
-                   SHADER_UNIFORM_VEC2);
-    DrawTexturePro(src->texture, rect_flip(), rect_full(), (Vector2){ 0, 0 },
-                   0.0f, WHITE);
-    EndShaderMode();
-    EndTextureMode();
-}
-
-static void bloom_composite(LongoRender *render)
-{
-    float intensity = 0.6f;
-
-    BeginShaderMode(render->bloom_blend_shader);
-    SetShaderValue(render->bloom_blend_shader, render->blend_intensity_loc,
-                   &intensity, SHADER_UNIFORM_FLOAT);
-    SetShaderValueTexture(render->bloom_blend_shader,
-                          render->blend_bloom_tex_loc,
-                          render->bloom_ping.texture);
-    DrawTexturePro(render->app_surface.texture, rect_flip(), rect_full(),
-                   (Vector2){ 0, 0 }, 0.0f, WHITE);
-    EndShaderMode();
-}
-
 void longo_render_frame(LongoRender *render, const SimWorld *world)
 {
     view_sort();
@@ -879,17 +709,11 @@ void longo_render_frame(LongoRender *render, const SimWorld *world)
     replay_layer(render, world, VIEW_WORLD);
     EndTextureMode();
 
-    /* bloom */
-    bloom_bright_pass(render);
-    bloom_blur_pass(render, &render->bloom_ping, &render->bloom_pong, 1.0f,
-                    0.0f);
-    bloom_blur_pass(render, &render->bloom_pong, &render->bloom_ping, 0.0f,
-                    1.0f);
-
-    /* GUI surface: bloom composite then GUI items */
+    /* GUI surface: the application surface, then GUI items */
     BeginTextureMode(render->gui_surface);
     ClearBackground(BLACK);
-    bloom_composite(render);
+    DrawTexturePro(render->app_surface.texture, rect_flip(), rect_full(),
+                   (Vector2){ 0, 0 }, 0.0f, WHITE);
     replay_layer(render, world, VIEW_GUI);
     EndTextureMode();
 

@@ -8,7 +8,6 @@
 
 /* Object type ids; the numeric order matches the exported asset table. */
 enum LongoObj {
-    LONGO_BLOOM = 0,
     LONGO_OBJ_SKULL = 1,
     LONGO_OBJ_TUTORIAL = 2,
     LONGO_OBJ_BUTTERFLY = 3,
@@ -92,7 +91,6 @@ static const LongoRoomObject longo_room_title_screen_objects[] = {
     { LONGO_OBJ_APPLE, 240, 96, 1, 1, -500 },
     { LONGO_OBJ_FLOWER, 80, 48, 1, 1, -500 },
     { LONGO_OBJ_FLOWER, 96, 40, 1, 1, -500 },
-    { LONGO_BLOOM, 272, 176, 1, 1, -600 },
 };
 
 static const LongoRoom longo_room_title_screen = {

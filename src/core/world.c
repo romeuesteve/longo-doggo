@@ -258,7 +258,7 @@ static void load_room(SimWorld *w, int room_index)
             w->shadows_present = 1;
             break;
         default:
-            /* BLOOM, POSTEFFECTS: render-side passes.  MOUSE/DOGSPAWNER:
+            /* POSTEFFECTS: render-side passes.  MOUSE/DOGSPAWNER:
              * the editor room is dropped. */
             break;
         }
