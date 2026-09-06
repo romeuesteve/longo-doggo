@@ -52,7 +52,7 @@ values exist to smooth *movement*; initialising them at zero made every
 object glide in from (0,0) on room load.
 
 **Sprite identity comes from the object table, not the name.** Names
-lie: the skull item draws `sprPear` (8 frames @ 16 fps), and the
+lie: the pear item draws `sprPear` (8 frames @ 16 fps), and the
 `sprSkull` asset is unreferenced. When a drawn object looks wrong,
 check the object-to-sprite mapping before the sprite table.
 
@@ -86,13 +86,23 @@ site.** Every gameplay script owns its snapshot (a state struct plus
 history); `core/undo.c` owns the stack. The capture wraps `try_step()`
 in dog.c — the only place a move mutates the board — before the first
 mutation, and commits only when the step actually moves, so strained
-attempts leave no phantom undo points. The solid map is captured
-verbatim instead of re-stamped from the owners on restore: replaying
-exactly what was recorded keeps undo free of stamp-order questions.
-Everything that is not board state — rng, fx, view easing, dialogue,
-the transition — keeps running through an undo (a restored dog snaps
-its eased view position, like a fresh placement), and a room load
-drops the history.
+attempts leave no phantom undo points. Two inputs undo: the `Z` press
+(sim_tick pops before the step) and stepping backwards into the dog's
+own neck — the one press that could only ever strain, resolved in
+dog.c where the facing lives. The solid map is captured verbatim
+instead of re-stamped from the owners on restore: replaying exactly
+what was recorded keeps undo free of stamp-order questions. Everything
+that is not board state — rng, fx, view easing, dialogue, the
+transition — keeps running across an undo (a restored dog snaps its
+eased view position, like a fresh placement), and a room load drops
+the history.
+
+**Fx pools recycle their dead.** Spawning reuses dead slots, so the
+pool counts are high-water marks of simultaneously-alive fx. The pools
+were append-only: death set `alive = false` but the counts never
+shrank, so they were lifetime totals — after a few minutes of play
+every new poof was silently dropped (box sinks died first at 8, then
+smoke at 160), and hole fills and the house opening went quiet.
 
 **Presentation substitutions are deliberate and documented.** These
 departures from the literal sprite data exist because it reads badly at
@@ -138,8 +148,9 @@ follow, the tail exception (a length-3 dog looping on four cells),
 scaled-wall stamping, pear sprites, hole rendering + the filled frame,
 the 9-slice bubble, house anchors, view snap, box push/hole fill,
 button/door counting, the win transition, retry, and undo (steps, box
-pushes into holes, eaten apples, a fatal pear, and history dropped on
-a room load). View-level asserts inspect the pushed `ViewItem`s
+pushes into holes, eaten apples, a backward press into the dog's own
+neck, and history dropped on a room load), plus fx pools recycling
+dead slots. View-level asserts inspect the pushed `ViewItem`s
 directly — no renderer needed.
 `tests/playthrough.c` replays a timed input script and prints states
 for manual review.

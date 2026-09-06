@@ -35,7 +35,7 @@ static void item_place(int kind, uint16_t cell)
 }
 
 void apple_place(uint16_t cell) { item_place(KIND_APPLE, cell); }
-void skull_place(uint16_t cell) { item_place(KIND_SKULL, cell); }
+void pear_place(uint16_t cell) { item_place(KIND_PEAR, cell); }
 
 static int item_count(int kind) { return item_cnt[kind]; }
 
@@ -67,11 +67,11 @@ uint16_t apple_cell(int index) { return item_cell(KIND_APPLE, index); }
 int apple_index_at(uint16_t cell) { return item_index_at(KIND_APPLE, cell); }
 void apple_consume(int index) { item_consume(KIND_APPLE, index); }
 
-int skull_count(void) { return item_count(KIND_SKULL); }
-bool skull_alive(int index) { return item_alive(KIND_SKULL, index); }
-uint16_t skull_cell(int index) { return item_cell(KIND_SKULL, index); }
-int skull_index_at(uint16_t cell) { return item_index_at(KIND_SKULL, cell); }
-void skull_consume(int index) { item_consume(KIND_SKULL, index); }
+int pear_count(void) { return item_count(KIND_PEAR); }
+bool pear_alive(int index) { return item_alive(KIND_PEAR, index); }
+uint16_t pear_cell(int index) { return item_cell(KIND_PEAR, index); }
+int pear_index_at(uint16_t cell) { return item_index_at(KIND_PEAR, cell); }
+void pear_consume(int index) { item_consume(KIND_PEAR, index); }
 
 /* ------------------------------------------------------------------ */
 /* View                                                                */

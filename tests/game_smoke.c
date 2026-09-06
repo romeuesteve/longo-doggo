@@ -2,11 +2,12 @@
  * Headless smoke tests for the simulation core.
  * Runs every room with deterministic input and asserts the gameplay
  * rules: runtime room order, dialogue gating, tile-based movement cadence,
- * chain follow, apple/skull length changes, box push/hole fill,
+ * chain follow, apple/pear length changes, box push/hole fill,
  * simultaneous button/door logic, the win transition order, and retry.
  */
 #include "core/world.h"
 
+#include "core/events.h"
 #include "core/solid.h"
 #include "core/view.h"
 
@@ -19,6 +20,7 @@
 #include "objects/button.h"
 #include "objects/dialogue.h"
 #include "objects/door.h"
+#include "objects/fx.h"
 #include "objects/hole.h"
 #include "objects/house.h"
 #include "objects/items.h"
@@ -218,7 +220,7 @@ static void test_room_load_rules(void)
     assert(dog_visual_x() == (float)(dog_cx() * 16 + 8));
     assert(dog_visual_y() == (float)(dog_cy() * 16 + 8));
 
-    /* the skull item draws the pear sprite, one item per pushed view
+    /* the pear item draws the pear sprite, one item per pushed view
      * sprite */
     view_begin_frame();
     items_draw(0);
@@ -231,7 +233,7 @@ static void test_room_load_rules(void)
                 items[i].sprite == LONGO_SPR_PEAR)
                 pears++;
         assert(pears > 0);
-        assert(pears == skull_count());
+        assert(pears == pear_count());
     }
 
     /* the house counter keeps the pixel digits font (font_id 2) */
@@ -298,7 +300,7 @@ static void test_room_load_rules(void)
     }
 }
 
-static void test_apple_and_skull_length(void)
+static void test_apple_and_pear_length(void)
 {
     SimInput input;
     memset(&input, 0, sizeof(input));
@@ -324,38 +326,39 @@ static void test_apple_and_skull_length(void)
     /* the new tail segment sits on the cell the tail just left */
     assert(dog_part_cell(dog_length() - 1) == dog_detached_cell());
 
-    /* a skull at length 3 shortens; at length 2 it kills the dog */
-    int skull = -1;
-    for (int i = 0; i < skull_count(); i++) {
-        if (skull_alive(i)) {
-            skull = i;
+    /* a pear at length 3 shortens the dog to the minimum shape */
+    int pear = -1;
+    for (int i = 0; i < pear_count(); i++) {
+        if (pear_alive(i)) {
+            pear = i;
             break;
         }
     }
-    assert(skull >= 0);
+    assert(pear >= 0);
     dog_set_length(3);
-    dog_teleport(sim_cell_x(skull_cell(skull)) - 1,
-                 sim_cell_y(skull_cell(skull)));
+    dog_teleport(sim_cell_x(pear_cell(pear)) - 1,
+                 sim_cell_y(pear_cell(pear)));
     input.pressed_right = 1;
     tick_with(&input);
     tick_idle(1);
-    assert(dog_alive());
     assert(dog_length() == 2);
 
-    for (int i = 0; i < skull_count(); i++) {
-        if (skull_alive(i)) {
-            skull = i;
+    /* at the minimum length a pear is still eaten, but nothing
+     * shrinks and the dog survives */
+    for (int i = 0; i < pear_count(); i++) {
+        if (pear_alive(i)) {
+            pear = i;
             break;
         }
     }
-    assert(skull >= 0);
-    dog_teleport(sim_cell_x(skull_cell(skull)) - 1,
-                 sim_cell_y(skull_cell(skull)));
+    assert(pear >= 0);
+    dog_teleport(sim_cell_x(pear_cell(pear)) - 1,
+                 sim_cell_y(pear_cell(pear)));
     input.pressed_right = 1;
     tick_with(&input);
     tick_idle(1);
-    /* eating a pear at length 2 destroys the dog */
-    assert(!dog_alive());
+    assert(dog_length() == 2);
+    assert(!pear_alive(pear));
 }
 
 static void test_walls_and_push_rules(void)
@@ -566,6 +569,33 @@ static void press_undo(void)
     tick_idle(1);
 }
 
+static void test_fx_pools_reuse_dead_slots(void)
+{
+    fx_reset();
+
+    /* more popups and sinks than the pools' old hard caps (16 and 8):
+     * spawning must reuse dead slots instead of dropping new fx */
+    for (int i = 0; i < 17; i++)
+        events_fx(FX_ONE, 0.0f, 0.0f, 0, 0, 0, 0, 0);
+    for (int i = 0; i < 9; i++)
+        events_fx(FX_BOX_SINK, 0.0f, 0.0f, 640.0f, 480.0f, 0, 0, 0);
+    fx_tick();
+    view_begin_frame();
+    fx_draw();
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        int ones = 0, boxes = 0;
+        for (int i = 0; i < count; i++) {
+            if (items[i].kind != VIEW_ITEM_SPRITE) continue;
+            if (items[i].sprite == LONGO_SPR_ONE) ones++;
+            if (items[i].sprite == LONGO_SPR_BOX) boxes++;
+        }
+        assert(ones == 17);
+        assert(boxes == 9);
+    }
+}
+
 static void test_undo(void)
 {
     int start_x, start_y;
@@ -583,11 +613,22 @@ static void test_undo(void)
     press_dir(90);
     assert(dog_cx() == start_x + 1);
     assert(dog_dir() == 90);
+
+    /* the undo press proper */
     press_undo();
     assert(dog_cx() == start_x && dog_cy() == start_y);
     assert(dog_dir() == 180);
     assert(dog_part_cell(0) == sim_cell_of(start_x, start_y + 1));
     assert(dog_length() == 5);
+    assert(solid_kind_at(sim_cell_of(start_x + 1, start_y)) == SOLID_EMPTY);
+
+    /* stepping backwards — the press opposite to the facing, which
+     * could only ever strain into the dog's own neck — undoes too */
+    press_dir(90);
+    assert(dog_cx() == start_x + 1 && dog_dir() == 90);
+    press_dir(270);
+    assert(dog_cx() == start_x && dog_cy() == start_y);
+    assert(dog_dir() == 180);
     assert(solid_kind_at(sim_cell_of(start_x + 1, start_y)) == SOLID_EMPTY);
 
     /* a box pushed into the hole, then undone: the box is back, the
@@ -654,30 +695,6 @@ static void test_undo(void)
         assert(dog_cx() == sim_cell_x(apple_cell(apple)) - 1);
     }
 
-    /* a fatal pear at minimum length is undoable: the dog comes back */
-    {
-        int skull = -1;
-        SimInput input;
-        memset(&input, 0, sizeof(input));
-        for (int i = 0; i < skull_count(); i++)
-            if (skull_alive(i)) {
-                skull = i;
-                break;
-            }
-        assert(skull >= 0);
-        dog_set_length(2);
-        dog_teleport(sim_cell_x(skull_cell(skull)) - 1,
-                     sim_cell_y(skull_cell(skull)));
-        input.pressed_right = 1;
-        tick_with(&input);
-        tick_idle(1);
-        assert(!dog_alive());
-        press_undo();
-        assert(dog_alive());
-        assert(dog_length() == 2);
-        assert(skull_alive(skull));
-    }
-
     /* a room load drops the history: a fresh room's undo does nothing,
      * not even one left over from the previous room */
     sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
@@ -694,10 +711,11 @@ int main(void)
     test_tutorial_dialogue_gates_play();
     test_movement_and_chain();
     test_room_load_rules();
-    test_apple_and_skull_length();
+    test_apple_and_pear_length();
     test_walls_and_push_rules();
     test_buttons_door_win_retry();
     test_retry_reloads_room();
+    test_fx_pools_reuse_dead_slots();
     test_undo();
     printf("longo_game_smoke: all tests passed\n");
     return 0;

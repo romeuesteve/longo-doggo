@@ -230,7 +230,7 @@ static void emit_bark(void)
     events_sound(SND_BARK, 0);
 }
 
-/* Pickups on the head's new cell (apple, skull, win zone). */
+/* Pickups on the head's new cell (apple, pear, win zone). */
 static void resolve_pickups(void)
 {
     uint16_t head = head_cell();
@@ -246,9 +246,9 @@ static void resolve_pickups(void)
         events_sound(SND_POOF, 0);
     }
 
-    int skull = skull_index_at(head);
-    if (skull >= 0) {
-        skull_consume(skull);
+    int pear = pear_index_at(head);
+    if (pear >= 0) {
+        pear_consume(pear);
         if (dog.length > 2) {
             uint16_t tail = dog.chain[dog.length - 1];
             shrink_chain();
@@ -256,12 +256,9 @@ static void resolve_pickups(void)
                       (float)(sim_cell_x(tail) * SIM_CELL + 8),
                       (float)(sim_cell_y(tail) * SIM_CELL + 8), 0, 0, 0, 7, 0);
             events_fx(FX_ONE, hx, hy - 8.0f, 0, 0, 0, 0, 1);
-        } else {
-            /* eating a pear at minimum length destroys the dog; the
-             * room softlocks until retry */
-            dog.alive = false;
-            solid_clear(head);
         }
+        /* at the minimum three-piece shape (head, middle, butt) a
+         * pear is eaten with no further effect */
         events_sound(SND_POOF, 0);
     }
 
@@ -329,9 +326,12 @@ void dog_tick(const SimInput *input)
     int ym = sign((input->pressed_down ? 1 : 0) - (input->pressed_up ? 1 : 0));
 
     if (dog.play && dog.key_cooldown == 0 && (xm != 0 || ym != 0)) {
-        bool moved = xm != 0 ? try_step(xm > 0 ? 90 : 270)
-                             : try_step(ym > 0 ? 0 : 180);
-        if (moved) dog.key_cooldown = DOG_KEY_COOLDOWN;
+        /* the press opposite to the facing is the dead input — the head
+         * would step into its own neck — so it backs the last move out
+         * instead of straining */
+        int dir = xm != 0 ? (xm > 0 ? 90 : 270) : (ym > 0 ? 0 : 180);
+        bool acted = dir == (dog.dir + 180) % 360 ? undo_pop() : try_step(dir);
+        if (acted) dog.key_cooldown = DOG_KEY_COOLDOWN;
     }
 
     /* idle bark (armed only by the title room) */

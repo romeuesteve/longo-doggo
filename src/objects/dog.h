@@ -2,7 +2,7 @@
  * Dog object script: the long dog itself.  Fully tile-based — the head
  * snaps between cells and the body chain shifts along like a snake; the
  * view eases the sprites.  Owns movement rules, chain growth/shrink and
- * the pickups (apples, skulls, the win zone).
+ * the pickups (apples, pears, the win zone).
  */
 #ifndef LONGO_OBJECT_DOG_H
 #define LONGO_OBJECT_DOG_H

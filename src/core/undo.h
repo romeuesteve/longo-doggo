@@ -6,7 +6,7 @@
  * *_capture/*_restore pairs in objects/ and core/solid.h).  This module
  * owns the stack and the timing: the dog wraps every real step in
  * undo_begin_step()/undo_commit_step(), and an undo press restores the
- * newest snapshot and consumes the tick.
+ * newest snapshot (the tick then runs on over the restored board).
  *
  * Only board state is captured.  Cosmetics (rng, fx, view easing) and
  * meta objects (dialogue, transition) keep running across an undo, and
@@ -28,9 +28,12 @@ void undo_reset(void);
 void undo_begin_step(void);
 void undo_commit_step(void);
 
-/* One undo press: pop the newest snapshot and restore it.  Returns true
- * when the press fired, so sim_tick can skip the rest of the tick (the
- * restored board must not also step). */
+/* Restore the newest snapshot; false when the history is empty.  Plays
+ * the undo sound. */
+bool undo_pop(void);
+
+/* The Z press.  (The other undo input — stepping backwards into the
+ * dog's own neck — resolves in dog.c, which owns facing.) */
 bool undo_tick(const SimInput *input);
 
 #endif /* LONGO_UNDO_H */

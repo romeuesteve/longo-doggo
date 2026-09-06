@@ -61,9 +61,9 @@ void undo_commit_step(void)
         history_count++;
 }
 
-bool undo_tick(const SimInput *input)
+bool undo_pop(void)
 {
-    if (!input->pressed_undo || history_count == 0) return false;
+    if (history_count == 0) return false;
     history_count--;
     const UndoState *s = &history[(history_start + history_count) % UNDO_MAX];
     dog_restore(&s->dog);
@@ -75,4 +75,10 @@ bool undo_tick(const SimInput *input)
     solid_restore(&s->solid);
     events_sound(SND_POOF, 0);
     return true;
+}
+
+bool undo_tick(const SimInput *input)
+{
+    if (!input->pressed_undo) return false;
+    return undo_pop();
 }

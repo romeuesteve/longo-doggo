@@ -72,10 +72,43 @@ void fx_reset(void)
     sink_cnt = 0;
 }
 
+/* Spawning reuses dead slots, so the counts are high-water marks of
+ * simultaneously-alive fx.  The pools used to be append-only: after a
+ * few minutes of play every new poof was silently dropped (sinks died
+ * first at 8, then smoke at 160 — hole fills and the house opening
+ * went quiet). */
+static Smoke *smoke_slot(void)
+{
+    for (int i = 0; i < smoke_cnt; i++)
+        if (!smoke[i].alive) return &smoke[i];
+    return smoke_cnt < FX_MAX_SMOKE ? &smoke[smoke_cnt++] : NULL;
+}
+
+static Popup *popup_slot(void)
+{
+    for (int i = 0; i < popup_cnt; i++)
+        if (!popups[i].alive) return &popups[i];
+    return popup_cnt < FX_MAX_POPUPS ? &popups[popup_cnt++] : NULL;
+}
+
+static Bark *bark_slot(void)
+{
+    for (int i = 0; i < bark_cnt; i++)
+        if (!barks[i].alive) return &barks[i];
+    return bark_cnt < FX_MAX_BARKS ? &barks[bark_cnt++] : NULL;
+}
+
+static Sink *sink_slot(void)
+{
+    for (int i = 0; i < sink_cnt; i++)
+        if (!sinks[i].alive) return &sinks[i];
+    return sink_cnt < FX_MAX_SINKS ? &sinks[sink_cnt++] : NULL;
+}
+
 static void spawn_smoke_puff(float x, float y)
 {
-    if (smoke_cnt >= FX_MAX_SMOKE) return;
-    Smoke *s = &smoke[smoke_cnt++];
+    Smoke *s = smoke_slot();
+    if (!s) return;
     s->alive = true;
     s->x = x;
     s->y = y;
@@ -139,9 +172,9 @@ void fx_tick(void)
         case FX_SMOKE_BURST:
             spawn_smoke_burst(ev[i].x, ev[i].y, ev[i].count);
             break;
-        case FX_BARK:
-            if (bark_cnt < FX_MAX_BARKS) {
-                Bark *b = &barks[bark_cnt++];
+        case FX_BARK: {
+            Bark *b = bark_slot();
+            if (b) {
                 b->alive = true;
                 b->x = ev[i].x;
                 b->y = ev[i].y;
@@ -149,9 +182,10 @@ void fx_tick(void)
                 b->frame = 0.0f;
             }
             break;
-        case FX_ONE:
-            if (popup_cnt < FX_MAX_POPUPS) {
-                Popup *o = &popups[popup_cnt++];
+        }
+        case FX_ONE: {
+            Popup *o = popup_slot();
+            if (o) {
                 o->alive = true;
                 o->x = ev[i].x;
                 o->y = ev[i].y;
@@ -159,9 +193,10 @@ void fx_tick(void)
                 o->variant = ev[i].variant;
             }
             break;
-        case FX_BOX_SINK:
-            if (sink_cnt < FX_MAX_SINKS) {
-                Sink *s = &sinks[sink_cnt++];
+        }
+        case FX_BOX_SINK: {
+            Sink *s = sink_slot();
+            if (s) {
                 s->alive = true;
                 s->x = ev[i].x;
                 s->y = ev[i].y;
@@ -169,6 +204,7 @@ void fx_tick(void)
                 s->ty = ev[i].ty;
             }
             break;
+        }
         default:
             break;
         }

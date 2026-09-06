@@ -4,6 +4,12 @@ A C99 + raylib build of [Longo Doggo](https://romeuski.itch.io/longo-doggo),
 ported from the original GameMaker project. CMake drives native and
 Emscripten targets from one codebase.
 
+<p align="center">
+  <img width="32%" alt="Opening room" src="docs/img/screenshot-1.gif">
+  <img width="32%" alt="Boxes and holes" src="docs/img/screenshot-2.gif">
+  <img width="32%" alt="Buttons and doors" src="docs/img/screenshot-3.gif">
+</p>
+
 The game logic is a plain-C tile-based simulation, organised as one
 script per object.
 
@@ -12,6 +18,7 @@ script per object.
 ```
 src/core/     world.c     room load, the explicit tick order, draw order
               solid.c     shared occupancy/solidity feature
+              undo.c      move history: verbatim board snapshots
               events.c    sound + visual-effect queues
               view.c      draw-item kernel, animation clocks
               sprites.*   sprite asset metadata
@@ -58,14 +65,15 @@ ctest --test-dir build --output-on-failure
 ```
 
 The build copies the runtime assets to `build/assets/exported-assets/`.
-Controls: arrow keys or WASD step one cell per press, `R` retries the
-room, Space barks, Enter/E/Space advance dialogues, any key starts from
-the title.
+Controls: arrow keys or WASD step one cell per press, `Z` (or stepping
+backwards, into the dog's own neck) undoes the last step, `R` retries
+the room, Space barks, Enter/E/Space advance dialogues, any key starts
+from the title.
 
 `tests/game_smoke.c` exercises the simulation headlessly: title →
 tutorial flow, dialogue gating, movement cadence, chain follow,
-apple/skull length changes, box push and hole fill, simultaneous
-button/door logic, the win transition order, and retry.
+apple/pear length changes, box push and hole fill, simultaneous
+button/door logic, the win transition order, retry, and undo.
 
 ## Web export
 

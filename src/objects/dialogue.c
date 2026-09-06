@@ -78,11 +78,11 @@ void dialogue_start(int room_index)
             dlg.box[i].y = TUTORIAL_BOX_Y[i];
             dlg.box[i].text = TUTORIAL_TEXTS[i];
         }
-        /* box 3 sits beside the first skull (skull->x - 8) */
-        for (int i = 0; i < skull_count(); i++) {
-            if (skull_alive(i)) {
+        /* box 3 sits beside the first pear (pear->x - 8) */
+        for (int i = 0; i < pear_count(); i++) {
+            if (pear_alive(i)) {
                 dlg.box[3].x =
-                    (float)(sim_cell_x(skull_cell(i)) * SIM_CELL - 8);
+                    (float)(sim_cell_x(pear_cell(i)) * SIM_CELL - 8);
                 break;
             }
         }

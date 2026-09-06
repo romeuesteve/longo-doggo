@@ -41,10 +41,9 @@ static void longo_frame(void)
         IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER);
     input.pressed_e = IsKeyPressed(KEY_E);
     input.pressed_r = IsKeyPressed(KEY_R);
-    /* undo: U, Z (Ctrl+Z included — a held Ctrl does not affect the
-     * press edge) or Backspace */
-    input.pressed_undo = IsKeyPressed(KEY_U) || IsKeyPressed(KEY_Z) ||
-                         IsKeyPressed(KEY_BACKSPACE);
+    input.pressed_undo = IsKeyPressed(KEY_Z); /* Ctrl+Z included — a held
+                                               * Ctrl does not affect the
+                                               * press edge */
 
     /* any key press starts the game; drain the press queue instead
      * of probing all 512 key slots */

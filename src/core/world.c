@@ -188,8 +188,8 @@ static void load_room(SimWorld *w, int room_index)
             apple_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
                                     (int)floorf(p->y / SIM_CELL)));
             break;
-        case LONGO_OBJ_SKULL:
-            skull_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
+        case LONGO_OBJ_PEAR:
+            pear_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
                                     (int)floorf(p->y / SIM_CELL)));
             break;
         case LONGO_OBJ_BUTTON: {
@@ -288,9 +288,9 @@ void sim_tick(SimWorld *w, const SimInput *input)
     w->tick++;
     events_clear();
 
-    /* 0. undo press: restore the pre-step board and consume the tick,
-     * so the restored state is not also stepped this frame */
-    if (undo_tick(&w->input)) return;
+    /* 0. undo press: restore the pre-step board; the tick then runs on
+     * over it, so buttons/doors/the house re-derive in the same frame */
+    undo_tick(&w->input);
 
     /* 1. dog step + pickups */
     dog_tick(&w->input);
