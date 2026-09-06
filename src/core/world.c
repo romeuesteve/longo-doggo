@@ -40,11 +40,6 @@ int sim_cell_x(uint16_t cell) { return cell % SIM_MAX_CELLS_W; }
 int sim_cell_y(uint16_t cell) { return cell / SIM_MAX_CELLS_W; }
 uint16_t sim_cell_of(int cx, int cy) { return SIM_CELL_INDEX(cx, cy); }
 
-static int in_bounds(const SimWorld *w, int cx, int cy)
-{
-    return cx >= 0 && cy >= 0 && cx < w->cells_w && cy < w->cells_h;
-}
-
 static SimWorld game_world;
 
 SimWorld *world_ptr(void) { return &game_world; }
@@ -128,10 +123,13 @@ static void compute_zone(SimWorld *w, uint16_t *zone, int *count, float bx,
     compute_zone_ex(w, zone, count, bx, by, bw, bh, 0);
 }
 
-/* Cells the dog can never enter because its shifted probe would overlap
- * the placed bbox (for 16x16 objects that is exactly the object's cell). */
-static void mark_solid_footprint(SimWorld *w, float bx, float by, float bw,
-                                 float bh)
+/* Cells whose 16px probe rect strictly overlaps the bbox get `kind` (the
+ * GameMaker bbox rule: touching edges do not collide).  This is the one
+ * bbox -> solid-map rasterizer: every instance that occupies area is
+ * loaded through it, scaled or not, so the map matches what the original
+ * place_meeting() probes saw. */
+static void mark_footprint(SimWorld *w, float bx, float by, float bw,
+                           float bh, SolidKind kind)
 {
     for (int cy = 0; cy < w->cells_h; cy++) {
         for (int cx = 0; cx < w->cells_w; cx++) {
@@ -139,7 +137,7 @@ static void mark_solid_footprint(SimWorld *w, float bx, float by, float bw,
             float ry = (float)cy * SIM_CELL;
             if (rects_strictly_overlap(rx, ry, SIM_CELL, SIM_CELL, bx, by, bw,
                                        bh))
-                solid_place(sim_cell_of(cx, cy), SOLID_GOAL, 0);
+                solid_place(sim_cell_of(cx, cy), kind, 0);
         }
     }
 }
@@ -174,17 +172,19 @@ static void load_room(SimWorld *w, int room_index)
     dialogue_reset();
     flower_reset();
     butterfly_reset();
+    fx_reset(); /* smoke/bark/popups are non-persistent instances */
     w->shadows_present = 0;
 
     for (int i = 0; i < room->instance_count; i++) {
         const LongoRoomInstance *p = &room->instances[i];
         switch (p->object) {
-        case LONGO_OBJ_BLOCK: {
-            int cx = (int)floorf(p->x / SIM_CELL);
-            int cy = (int)floorf(p->y / SIM_CELL);
-            if (in_bounds(w, cx, cy)) solid_place(sim_cell_of(cx, cy), SOLID_WALL, 0);
+        case LONGO_OBJ_BLOCK:
+            /* oBlock is the wall collider; rooms stamp it scaled (xscale *
+             * 16px wide, yscale * 16px tall).  The old single-cell load
+             * left most of every scaled wall walkable. */
+            mark_footprint(w, p->x, p->y, 16.0f * p->xscale,
+                           16.0f * p->yscale, SOLID_WALL);
             break;
-        }
         case LONGO_OBJ_DOG:
             dog_x = p->x;
             dog_y = p->y;
@@ -227,11 +227,11 @@ static void load_room(SimWorld *w, int room_index)
             float gy = p->y - 64;
             house_place_goal(sim_cell_of((int)floorf(p->x / SIM_CELL),
                                          (int)floorf((p->y - 32) / SIM_CELL)));
-            mark_solid_footprint(w, gx, gy, 64, 64);
+            mark_footprint(w, gx, gy, 64, 64, SOLID_GOAL);
             break;
         }
         case LONGO_OBJ_HOUSESPAWNER: {
-            /* oHouseSpawner step: goal at (x+8, y+16), win at (x-8, y+16)
+            /* oHouseSpawner create: goal at (x+8, y+16), win at (x-8, y+16)
              * with xscale 2 (a 32x32 bbox) */
             float gx = p->x + 8;
             float gy = p->y + 16;
@@ -239,7 +239,7 @@ static void load_room(SimWorld *w, int room_index)
             float wy = p->y + 16;
             house_place_goal(sim_cell_of((int)floorf(gx / SIM_CELL),
                                          (int)floorf((gy - 32) / SIM_CELL)));
-            mark_solid_footprint(w, gx - 32, gy - 64, 64, 64);
+            mark_footprint(w, gx - 32, gy - 64, 64, 64, SOLID_GOAL);
             {
                 uint16_t zone[HOUSE_WIN_ZONE_MAX];
                 int count;

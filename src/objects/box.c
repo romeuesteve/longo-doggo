@@ -17,6 +17,8 @@ typedef struct Box {
 static Box boxes[BOX_MAX];
 static int box_cnt;
 
+static void view_snap(int index); /* placement starts the eased position */
+
 void box_reset(void)
 {
     memset(boxes, 0, sizeof(boxes));
@@ -29,6 +31,7 @@ void box_place(uint16_t cell)
     boxes[box_cnt].alive = true;
     boxes[box_cnt].cell = cell;
     solid_place(cell, SOLID_BOX, box_cnt);
+    view_snap(box_cnt);
     box_cnt++;
 }
 
@@ -93,6 +96,15 @@ bool box_push(int index, uint16_t from_cell, int dir)
 /* ------------------------------------------------------------------ */
 
 static float v_box_x[BOX_MAX], v_box_y[BOX_MAX];
+
+/* A fresh box sits on its cell; only pushed boxes ease (the original
+ * oBox x = lerp(x, xx, 0.25) runs from the placed position, never from
+ * the origin). */
+static void view_snap(int index)
+{
+    v_box_x[index] = (float)(sim_cell_x(boxes[index].cell) * SIM_CELL);
+    v_box_y[index] = (float)(sim_cell_y(boxes[index].cell) * SIM_CELL);
+}
 
 float box_visual_x(int index) { return v_box_x[index]; }
 float box_visual_y(int index) { return v_box_y[index]; }

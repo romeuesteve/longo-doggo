@@ -383,8 +383,11 @@ static void draw_sprite_origin(LongoRender *render, LongoSprite sprite,
     Color c = tint;
     c.a = (unsigned char)(255.0f * alpha + 0.5f);
     if (rotation != 0.0f || xscale != 1.0f || yscale != 1.0f) {
-        DrawTexturePro(render->sprites[sprite], source, dest, origin, rotation,
-                       c);
+        /* view items carry GameMaker angles (positive = counterclockwise
+         * on screen); raylib rotates clockwise, so flip the sign once
+         * here instead of at every push site */
+        DrawTexturePro(render->sprites[sprite], source, dest, origin,
+                       -rotation, c);
     } else {
         DrawTextureRec(render->sprites[sprite], source,
                        (Vector2){ x - origin.x, y - origin.y }, c);

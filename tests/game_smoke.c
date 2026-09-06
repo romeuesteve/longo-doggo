@@ -8,6 +8,7 @@
 #include "core/world.h"
 
 #include "core/solid.h"
+#include "core/view.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -99,15 +100,23 @@ static void test_movement_and_chain(void)
     uint16_t head0 = sim_cell_of(start_x, start_y);
 
     /* a fresh press steps instantly and snaps the head cell */
-    input.held_right = 1;
+    input.pressed_right = 1;
     tick_with(&input);
     assert(dog_cx() == start_x + 1);
     assert(dog_dir() == 90);
 
-    /* the held-repeat timer gates the next step (one step per 2 ticks) */
+    /* the key_cooldown gate: an immediate re-press is swallowed
+     * (alarm[1] = 2 keeps the move locked for the next tick) */
     tick_with(&input);
-    assert(dog_cx() == start_x + 1); /* move_timer still counting */
-    tick_idle(1);                    /* timer expires */
+    assert(dog_cx() == start_x + 1); /* cooldown still counting */
+
+    /* holding the key alone produces nothing further: the original
+     * oDog Step moves on keyboard_check_pressed, not held keys */
+    tick_idle(5);
+    assert(dog_cx() == start_x + 1);
+
+    /* a new press after the cooldown steps again */
+    input.pressed_right = 1;
     tick_with(&input);
     assert(dog_cx() == start_x + 2);
 
@@ -116,6 +125,118 @@ static void test_movement_and_chain(void)
     assert(dog_part_cell(0) == sim_cell_of(start_x + 1, start_y));
     assert(dog_part_cell(1) == head0);
     assert(dog_play());
+}
+
+static void test_room_load_rules(void)
+{
+    /* scaled oBlock instances must blanket every cell their scaled bbox
+     * covers: the tutorial border is stamped as 19x1 / 1x12.5 blocks */
+    sim_room_goto(world_ptr(), SIM_ROOM_TUTORIAL);
+    tick_idle(2);
+    for (int x = 0; x < world.cells_w; x++) {
+        assert(solid_kind_at(sim_cell_of(x, 0)) == SOLID_WALL);      /* 19x1 */
+        assert(solid_kind_at(sim_cell_of(x, 12)) == SOLID_WALL);     /* 19x1 */
+        assert(solid_kind_at(sim_cell_of(0, x % world.cells_h)) ==
+               SOLID_WALL);                                          /* 1x12.5 */
+        assert(solid_kind_at(sim_cell_of(18, x % world.cells_h)) ==
+               SOLID_WALL);                                          /* 1x12.5 */
+    }
+    assert(solid_kind_at(sim_cell_of(5, 5)) == SOLID_EMPTY);
+
+    /* dismissing the restarted tutorial dialogue releases the dog */
+    {
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        for (int i = 0; i < 7; i++) {
+            input.pressed_space = 1;
+            tick_with(&input);
+            input.pressed_space = 0;
+            tick_idle(1);
+        }
+        tick_idle(DIALOGUE_SHRINK_TICKS + 10);
+    }
+    assert(dog_play());
+
+    /* and the dog really cannot step into the stamp */
+    dog_teleport(17, 5);
+    {
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        input.pressed_right = 1;
+        tick_with(&input);
+    }
+    assert(dog_strain());
+    assert(dog_cx() == 17 && dog_cy() == 5);
+
+    /* view state is born on the dog's cell, never eased in from (0,0) */
+    assert(dog_visual_x() == (float)(dog_cx() * 16 + 8));
+    assert(dog_visual_y() == (float)(dog_cy() * 16 + 8));
+
+    /* oSkull draws sprPear (the recovered object table), one item per
+     * pushed view sprite */
+    view_begin_frame();
+    items_draw(0);
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        int pears = 0;
+        for (int i = 0; i < count; i++)
+            if (items[i].kind == VIEW_ITEM_SPRITE &&
+                items[i].sprite == LONGO_SPR_PEAR)
+                pears++;
+        assert(pears > 0);
+        assert(pears == skull_count());
+    }
+
+    /* the house anchors on the oGoal instance (bottom-centre, sprHouse
+     * origin (32,64)) and oGoalUp redraws the top 44 rows above it */
+    view_begin_frame();
+    house_draw(0);
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        uint16_t goal = house_goal_cell();
+        float gx = (float)(sim_cell_x(goal) * 16 + 8);
+        float gy = (float)(sim_cell_y(goal) * 16 + 32);
+        int base = 0, crop = 0;
+        for (int i = 0; i < count; i++) {
+            if (items[i].sprite != LONGO_SPR_HOUSE) continue;
+            if (items[i].kind == VIEW_ITEM_SPRITE) {
+                base++;
+                assert(items[i].x == gx && items[i].y == gy);
+            } else if (items[i].kind == VIEW_ITEM_SPRITE_PART) {
+                crop++;
+                assert(items[i].x == gx - 32.0f);
+                assert(items[i].y == gy - 64.0f);
+            }
+        }
+        assert(base == 1);
+        assert(crop == 1);
+    }
+
+    /* level1 places the house through oHouseSpawner and has boxes: the
+     * spawned goal anchors at (x+8, y+16) and box views start on-cell */
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+    assert(box_count() > 0);
+    for (int i = 0; i < box_count(); i++) {
+        assert(box_visual_x(i) == (float)(sim_cell_x(box_cell(i)) * 16));
+        assert(box_visual_y(i) == (float)(sim_cell_y(box_cell(i)) * 16));
+    }
+    view_begin_frame();
+    house_draw(0);
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        /* spawner at (64,48): goal instance at (72,64) */
+        for (int i = 0; i < count; i++) {
+            if (items[i].sprite != LONGO_SPR_HOUSE) continue;
+            if (items[i].kind == VIEW_ITEM_SPRITE)
+                assert(items[i].x == 72.0f && items[i].y == 64.0f);
+            else if (items[i].kind == VIEW_ITEM_SPRITE_PART)
+                assert(items[i].x == 40.0f && items[i].y == 0.0f);
+        }
+    }
 }
 
 static void test_apple_and_skull_length(void)
@@ -136,7 +257,7 @@ static void test_apple_and_skull_length(void)
                  sim_cell_y(apple_cell(apple)));
     int length_before = dog_length();
 
-    input.held_right = 1;
+    input.pressed_right = 1;
     tick_with(&input);
     tick_idle(1);
     assert(dog_length() == length_before + 1);
@@ -156,7 +277,7 @@ static void test_apple_and_skull_length(void)
     dog_set_length(3);
     dog_teleport(sim_cell_x(skull_cell(skull)) - 1,
                  sim_cell_y(skull_cell(skull)));
-    input.held_right = 1;
+    input.pressed_right = 1;
     tick_with(&input);
     tick_idle(1);
     assert(dog_alive());
@@ -171,7 +292,7 @@ static void test_apple_and_skull_length(void)
     assert(skull >= 0);
     dog_teleport(sim_cell_x(skull_cell(skull)) - 1,
                  sim_cell_y(skull_cell(skull)));
-    input.held_right = 1;
+    input.pressed_right = 1;
     tick_with(&input);
     tick_idle(1);
     /* eating a pear at length 2 destroys the dog (original behaviour) */
@@ -198,7 +319,7 @@ static void test_walls_and_push_rules(void)
         SimInput input;
         memset(&input, 0, sizeof(input));
         dog_teleport(11, 5);
-        input.held_right = 1;
+        input.pressed_right = 1;
         tick_with(&input);
     }
     assert(hole_is_full(hole));
@@ -222,7 +343,7 @@ static void test_walls_and_push_rules(void)
     }
     assert(cx >= 0);
     dog_teleport(cx, cy);
-    input.held_right = 1;
+    input.pressed_right = 1;
     tick_with(&input);
     tick_idle(4);
     assert(dog_strain());
@@ -314,6 +435,7 @@ int main(void)
     test_title_flow_and_room_order();
     test_tutorial_dialogue_gates_play();
     test_movement_and_chain();
+    test_room_load_rules();
     test_apple_and_skull_length();
     test_walls_and_push_rules();
     test_buttons_door_win_retry();

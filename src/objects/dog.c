@@ -26,7 +26,9 @@
 #include "transition.h"
 
 #define DOG_MAX_CHAIN 64
-#define DOG_STEP_INTERVAL 2 /* one cell every 2 ticks held (30 cells/s) */
+/* alarm[1] = 2 after each step: key_cooldown gates the next press for two
+ * ticks, so even mashing moves at most one cell every 2 ticks */
+#define DOG_KEY_COOLDOWN 2
 
 typedef struct Dog {
     bool alive;
@@ -37,7 +39,7 @@ typedef struct Dog {
     uint16_t chain[DOG_MAX_CHAIN];
     uint8_t pflag[DOG_MAX_CHAIN];
     bool strain;      /* blocked on the last attempted step (logical only) */
-    int move_timer;   /* ticks until the next held-repeat step */
+    int key_cooldown; /* ticks until the next movement press is accepted */
     int bark_timer;   /* idle bark alarm, -1 = disabled (title only) */
     int detached_cell; /* cell the tail vacated on the last step */
 } Dog;
@@ -47,6 +49,10 @@ static Dog dog;
 static uint16_t head_cell(void) { return sim_cell_of(dog.cx, dog.cy); }
 
 static int sign(int v) { return (v > 0) - (v < 0); }
+
+/* Placement must initialise the eased view position (a fresh instance
+ * never eases in from the origin). */
+static void view_snap(void);
 
 /* ------------------------------------------------------------------ */
 /* Placement                                                           */
@@ -74,7 +80,7 @@ void dog_place(float x, float y)
     dog.play = true;
     dog.length = 5;
     dog.strain = false;
-    dog.move_timer = 0;
+    dog.key_cooldown = 0;
     dog.bark_timer = -1;
     for (int i = 0; i < dog.length; i++) {
         dog.chain[i] = sim_cell_of(dog.cx, dog.cy + 1 + i);
@@ -84,6 +90,7 @@ void dog_place(float x, float y)
     }
     dog.detached_cell = dog.chain[dog.length - 1];
     place_on_solid_map();
+    view_snap();
 }
 
 /* The title room rearranges the dog into an S-curve (port of the oTitle
@@ -103,6 +110,7 @@ void dog_title_arrangement(void)
     for (int i = 0; i < dog.length && i + 1 < 6; i++)
         dog.chain[i] = sim_cell_of(cells[i + 1][0], cells[i + 1][1]);
     place_on_solid_map();
+    view_snap();
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,8 +141,9 @@ void dog_teleport(int cx, int cy)
     for (int i = 0; i < dog.length; i++) solid_clear(dog.chain[i]);
     dog.cx = cx;
     dog.cy = cy;
-    dog.move_timer = 0;
+    dog.key_cooldown = 0;
     place_on_solid_map();
+    view_snap();
 }
 
 void dog_set_alive(bool alive)
@@ -299,16 +308,18 @@ void dog_tick(const SimInput *input)
 
     if (dog.play && input->pressed_space) emit_bark();
 
-    if (dog.move_timer > 0) dog.move_timer--;
+    if (dog.key_cooldown > 0) dog.key_cooldown--;
 
-    int xm = sign((input->held_right ? 1 : 0) - (input->held_left ? 1 : 0));
-    int ym = sign((input->held_down ? 1 : 0) - (input->held_up ? 1 : 0));
+    /* oDog Step: xmove/ymove are keyboard_check_pressed edges, and the
+     * move only fires while key_cooldown is clear.  Horizontal wins
+     * diagonal input, like the original's xmove-first check. */
+    int xm = sign((input->pressed_right ? 1 : 0) - (input->pressed_left ? 1 : 0));
+    int ym = sign((input->pressed_down ? 1 : 0) - (input->pressed_up ? 1 : 0));
 
-    /* horizontal wins diagonal input, like the original's xmove-first check */
-    if (dog.play && dog.move_timer == 0 && (xm != 0 || ym != 0)) {
+    if (dog.play && dog.key_cooldown == 0 && (xm != 0 || ym != 0)) {
         bool moved = xm != 0 ? try_step(xm > 0 ? 90 : 270)
                              : try_step(ym > 0 ? 0 : 180);
-        if (moved) dog.move_timer = DOG_STEP_INTERVAL;
+        if (moved) dog.key_cooldown = DOG_KEY_COOLDOWN;
     }
 
     /* idle bark (armed only by the title room, like the oDog alarm) */
@@ -332,6 +343,18 @@ static uint16_t v_part_cell[DOG_MAX_CHAIN];
 static int v_wiggle[DOG_MAX_CHAIN];
 
 static float f_lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+static void view_snap(void)
+{
+    v_dog_x = (float)(dog.cx * SIM_CELL + 8);
+    v_dog_y = (float)(dog.cy * SIM_CELL + 8);
+    for (int i = 0; i < dog.length; i++) {
+        v_part_x[i] = (float)(sim_cell_x(dog.chain[i]) * SIM_CELL + 8);
+        v_part_y[i] = (float)(sim_cell_y(dog.chain[i]) * SIM_CELL + 8);
+        v_part_cell[i] = dog.chain[i];
+        v_wiggle[i] = 0;
+    }
+}
 
 static float point_direction(float x1, float y1, float x2, float y2)
 {

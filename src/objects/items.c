@@ -100,11 +100,13 @@ void items_draw(int shadow)
         if (!skulls[i].alive) continue;
         float x = (float)(sim_cell_x(skulls[i].cell) * 16);
         float y = (float)(sim_cell_y(skulls[i].cell) * 16);
+        /* oSkull's sprite in data.win is sprPear (8 frames @ 16 fps); the
+         * sprSkull asset is never referenced by the object */
         if (shadow)
-            view_sprite(0, i, LONGO_SPR_SKULL, pear_frame % 4, x, y + 7.0f,
-                        1.0f, 0.6f, 0.0f, black, 1.0f);
+            view_sprite(0, i, LONGO_SPR_PEAR, pear_frame, x, y + 7.0f, 1.0f,
+                        0.6f, 0.0f, black, 1.0f);
         else
-            view_sprite(100, i, LONGO_SPR_SKULL, pear_frame % 4, x, y, 1.0f,
-                        1.0f, 0.0f, white, 1.0f);
+            view_sprite(100, i, LONGO_SPR_PEAR, pear_frame, x, y, 1.0f, 1.0f,
+                        0.0f, white, 1.0f);
     }
 }

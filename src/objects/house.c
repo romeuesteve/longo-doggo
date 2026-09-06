@@ -93,16 +93,19 @@ static float wave_pulse(int c)
 void house_view_tick(void)
 {
     if (!house.alive) return;
+    /* the oGoal instance position: stored cell holds oGoal.y - 32, so the
+     * anchor is two cells down */
     float px = (float)(sim_cell_x(house.goal_cell) * SIM_CELL + 8);
-    float py = (float)(sim_cell_y(house.goal_cell) * SIM_CELL + 8);
+    float py = (float)(sim_cell_y(house.goal_cell) * SIM_CELL + 32);
     int win_ready = house.remain <= 0;
 
     if (!win_ready) {
         if (v_count2 > 0) {
             if (v_count2 > 160)
                 events_fx(FX_SMOKE_BURST,
-                          px + world_random_range(-4.0f, 4.0f), py - 8.0f, 0,
-                          0, 0, 1, 0);
+                          px + world_random_range(-4.0f, 4.0f),
+                          (py - 8.0f) + world_random_range(-4.0f, 4.0f), 0, 0,
+                          0, 1, 0);
             v_count2 -= 4;
             v_scale_x = 1.0f + wave_pulse(v_count2);
             v_scale_y = 1.0f - wave_pulse(v_count2);
@@ -111,8 +114,9 @@ void house_view_tick(void)
         if (v_count > 0) {
             if (v_count > 160)
                 events_fx(FX_SMOKE_BURST,
-                          px + world_random_range(-4.0f, 4.0f), py - 8.0f, 0,
-                          0, 0, 1, 0);
+                          px + world_random_range(-4.0f, 4.0f),
+                          (py - 8.0f) + world_random_range(-4.0f, 4.0f), 0, 0,
+                          0, 1, 0);
             v_count -= 4;
             v_scale_x = 1.0f + wave_pulse(v_count);
             v_scale_y = 1.0f - wave_pulse(v_count);
@@ -126,9 +130,11 @@ void house_draw(int shadow)
     if (!house.alive) return;
     view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
     ViewColor tint = shadow ? view_rgb(0, 0, 0) : view_rgb(255, 255, 255);
-    /* oGoal instance position: cell column centre, one cell below the top */
+    /* the oGoal instance position: stored cell holds oGoal.y - 32, so the
+     * anchor (sprHouse origin, the house's bottom-centre) is two cells
+     * below the stored cell's top */
     float gx = (float)(sim_cell_x(house.goal_cell) * SIM_CELL + 8);
-    float gy = (float)(sim_cell_y(house.goal_cell) * SIM_CELL + 16);
+    float gy = (float)(sim_cell_y(house.goal_cell) * SIM_CELL + 32);
 
     if (shadow) {
         view_sprite(0, 0, LONGO_SPR_HOUSE, 0, gx, gy + 4.0f, 1.0f, 0.5f, 0.0f,
@@ -136,7 +142,13 @@ void house_draw(int shadow)
         return;
     }
     int frame = house.remain <= 0 ? 1 : 0;
-    view_sprite_part(-180, 0, LONGO_SPR_HOUSE, frame, 0, 0, 64, 44,
+    /* oGoal draws itself: the full 64x64 sprHouse, origin (32,64),
+     * unscaled (its own draw event) */
+    view_sprite(-180, 0, LONGO_SPR_HOUSE, frame, gx, gy, 1.0f, 1.0f, 0.0f,
+                tint, 1.0f);
+    /* oGoalUp then redraws the top 44 rows with the squash pulse; without
+     * this the base sprite's bottom rows are missing (depth -220) */
+    view_sprite_part(-220, 0, LONGO_SPR_HOUSE, frame, 0, 0, 64, 44,
                      gx - (32.0f * v_scale_x), gy - (64.0f * v_scale_y),
                      v_scale_x, v_scale_y, tint, 1.0f);
     if (house.remain > 0) {

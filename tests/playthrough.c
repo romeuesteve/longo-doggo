@@ -51,9 +51,11 @@ int main(void)
                transition_closing() ? 1 : 0, world.room_index);
     }
 
-    /* hold right for 3 seconds, reporting every half second */
-    in.held_right = 1;
+    /* tap right every 10 ticks for 3 seconds (the original moves one cell
+     * per keyboard_check_pressed, not while held), reporting every half
+     * second */
     for (int t = 0; t < 180; t++) {
+        in.pressed_right = (t % 10 == 0);
         tick(&in);
         if (t % 30 == 0) {
             printf("hold r t=%d: dog=(%d,%d) len=%d alive=%d room=%d "

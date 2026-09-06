@@ -51,7 +51,8 @@ typedef struct ViewItem {
     float x2, y2; /* line end */
     float w, h;   /* sprite-part source size / rect size */
     float xscale, yscale;
-    float rotation;
+    float rotation; /* GameMaker degrees: positive = counterclockwise on
+                     * screen; the render backend converts to its API */
     float alpha;
     float radius;
     ViewColor color;  /* primary (line gradient start, circle top) */

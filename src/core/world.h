@@ -28,9 +28,12 @@
 
 
 typedef struct SimInput {
-    /* held directions (arrow keys and WASD merged by the front-end) */
+    /* held directions (arrow keys and WASD merged by the front-end);
+     * reserved for consumers that genuinely need held state */
     unsigned char held_right, held_left, held_up, held_down;
-    /* pressed edges, one tick wide */
+    /* pressed edges, one tick wide.  Movement is one of these, like the
+     * original oDog Step: keyboard_check_pressed, not held keys. */
+    unsigned char pressed_right, pressed_left, pressed_up, pressed_down;
     unsigned char pressed_space, pressed_enter, pressed_e, pressed_r;
     unsigned char pressed_any;
 } SimInput;

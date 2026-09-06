@@ -3,8 +3,8 @@
  *
  * Runs the simulation at the original 60 FPS room speed (one tick per
  * vsynced frame, like GameMaker) and maps raylib input onto the sim's
- * held-direction + pressed-edge model.  Movement repeat lives in the
- * simulation (SIM_STEP_INTERVAL); the front-end no longer emulates OS
+ * pressed-edge model.  Movement is one cell per physical key press (the
+ * original keyboard_check_pressed); the front-end does not emulate OS
  * key repeat.  After each tick it advances the presentation and plays
  * the sounds the simulation queued.
  */
@@ -46,6 +46,13 @@ int main(void)
         input.held_left = IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A);
         input.held_down = IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S);
         input.held_up = IsKeyDown(KEY_UP) || IsKeyDown(KEY_W);
+
+        /* movement is keyboard_check_pressed in the original oDog Step:
+         * one step per physical press, no OS key repeat */
+        input.pressed_right = IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D);
+        input.pressed_left = IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A);
+        input.pressed_down = IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S);
+        input.pressed_up = IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W);
 
         input.pressed_space = IsKeyPressed(KEY_SPACE);
         input.pressed_enter =

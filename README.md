@@ -32,14 +32,19 @@ boxes and the dog's body share one collision vocabulary. `world.c` holds
 the entire event order in one readable function — no engine semantics.
 
 The simulation is fully tile-based: the dog's head snaps between 16px
-cells and the body chain shifts along like a snake, one cell every 2
-ticks while a direction is held (the original's held-key cadence, now an
-explicit constant). Each object script also owns its view: it eases
-sprite positions toward the snapped cells (the original `xx`/`yy` lerp),
-so motion snaps logically and stays smooth on screen. All rules are
-ports of the recovered GML behaviours — push/jam rules, hole fills,
-button/door counting, apple/skull length changes, the house counter and
+cells and the body chain shifts along like a snake. Movement steps one
+cell per key *press* (the original's `keyboard_check_pressed`), with the
+original's two-tick `key_cooldown` gating mashed repeats. Each object
+script also owns its view: sprite positions are born on the snapped cell
+at placement and ease toward it on movement (the original `xx`/`yy`
+lerp), so motion snaps logically and stays smooth on screen. All rules
+are ports of the recovered GML behaviours — push/jam rules, hole fills,
+button/door counting, apple/pear length changes, the house counter and
 win sequencing — verified by headless tests.
+
+`docs/architecture.md` expands on how the layers fit together and the
+recovery conventions the ports follow (bbox-to-cell stamping, GameMaker
+angle conventions, sprite identity from the recovered object table).
 
 ## Build and run on Windows
 
@@ -53,9 +58,9 @@ ctest --test-dir build --output-on-failure
 ```
 
 The build copies recovered runtime assets to `build/assets/exported-assets/`.
-Controls match the original: arrow keys or WASD move (the repeat cadence
-lives in the sim, not the OS), `R` retries the room, Space barks, Enter/
-E/Space advance dialogues, any key starts from the title.
+Controls match the original: arrow keys or WASD step one cell per press,
+`R` retries the room, Space barks, Enter/E/Space advance dialogues, any
+key starts from the title.
 
 `tests/game_smoke.c` exercises the simulation headlessly: title →
 tutorial flow, dialogue gating, movement cadence, chain follow,
