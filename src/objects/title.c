@@ -6,8 +6,13 @@
 #include "transition.h"
 
 static bool present;
+static bool started; /* a key was pressed: the wipe is on its way */
 
-void title_reset(void) { present = false; }
+void title_reset(void)
+{
+    present = false;
+    started = false;
+}
 
 void title_place(void)
 {
@@ -17,8 +22,11 @@ void title_place(void)
 
 void title_tick(const SimInput *input)
 {
-    if (!present) return;
-    if (input->pressed_any) transition_request_next();
+    if (!present || started) return;
+    if (input->pressed_any) {
+        started = true;
+        transition_request_next();
+    }
 }
 
 bool title_present(void) { return present; }
@@ -52,9 +60,13 @@ void title_draw(int shadow)
                      y + wave1, 1.0f, 1.0f, tint, alpha);
     view_sprite_part(depth, LONGO_SPR_TITLE, 0, 0, 69, 191, 149, x,
                      y + 48.0f + wave2 + 2.0f, 1.0f, 1.0f, tint, alpha);
-    /* "Press Any Key to Start", gradient shadowed */
-    view_text(depth, 0, "Press Any Key to Start", 151.0f,
-              188.0f + wave1 * 0.5f + 1.0f, 1.0f, view_rgb(51, 17, 0));
-    view_text(depth, 0, "Press Any Key to Start", 150.0f,
-              188.0f + wave1 * 0.5f, 1.0f, view_rgb(255, 235, 204));
+    /* "Press Any Key to Start", gradient shadowed, centred (font 1);
+     * hidden once the key is pressed because the text pass rides on top
+     * of the transition wipe */
+    if (!started) {
+        view_text(depth, 1, "Press Any Key to Start", 152.0f,
+                  188.0f + wave1 * 0.5f + 1.0f, 1.0f, view_rgb(51, 17, 0));
+        view_text(depth, 1, "Press Any Key to Start", 152.0f,
+                  188.0f + wave1 * 0.5f, 1.0f, view_rgb(255, 235, 204));
+    }
 }

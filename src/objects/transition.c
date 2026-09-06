@@ -116,9 +116,9 @@ void transition_draw(void)
     if (tr.room_num <= 7 && (tr.open || tr.close)) {
         char text[128];
         snprintf(text, sizeof(text), "LEVEL %d", tr.room_num);
-        view_text(0, 0, text, 142.0f, tr.text_y + 2.0f, 1.0f,
+        view_text(0, 1, text, 152.0f, tr.text_y + 2.0f, 1.0f,
                   view_rgb(0, 128, 0));
-        view_text(0, 0, text, 140.0f, tr.text_y, 1.0f,
+        view_text(0, 1, text, 152.0f, tr.text_y, 1.0f,
                   view_rgb(255, 255, 255));
     }
 }
