@@ -18,7 +18,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev \
-            libxinerama-dev libxi-dev libgl1-mesa-dev libasound2-dev
+            libxinerama-dev libxi-dev libgl1-mesa-dev libasound2-dev unzip
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
@@ -31,9 +31,12 @@ jobs:
           cp build/longo_doggo stage/
           cp -R build/assets stage/assets
           chmod +x stage/longo_doggo
-      - uses: itchio/setup-butler@v1
-        with:
-          butler-version: latest
+      - name: Install butler
+        run: |
+          curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -o butler.zip -d butler-bin
+          echo "$PWD/butler-bin" >> "$GITHUB_PATH"
+          butler --version
       - name: Push to itch.io
         run: butler push stage romeuski/longo-doggo:linux
         env:
@@ -77,9 +80,12 @@ jobs:
           cp longo_doggo stage/
           cp -R assets stage/assets
           chmod +x stage/longo_doggo
-      - uses: itchio/setup-butler@v1
-        with:
-          butler-version: latest
+      - name: Install butler
+        run: |
+          curl -L -o butler.zip https://broth.itch.zone/butler/darwin-arm64/LATEST/archive/default
+          unzip -o butler.zip -d butler-bin
+          echo "$PWD/butler-bin" >> "$GITHUB_PATH"
+          butler --version
       - name: Push to itch.io
         run: butler push stage romeuski/longo-doggo:mac
         env:
