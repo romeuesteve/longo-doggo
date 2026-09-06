@@ -10,7 +10,7 @@
 #define EVENTS_MAX_SOUNDS 64
 #define EVENTS_MAX_FX 64
 
-/* Sound asset indices recovered from data.win. */
+/* Sound asset indices into the exported asset table. */
 typedef enum GameSound {
     SND_NONE = -1,
     SND_PLACEHOLDER = 0,

@@ -13,8 +13,8 @@
 
 #define LONGO_BITMAP_FONT_GLYPHS 128
 
-/* The recovered FontDigits bitmap font: still used for the in-world house
- * counter so it stays pixelated with the rest of the game. */
+/* The pixelated bitmap digits font, used for the in-world house counter
+ * so it stays pixelated with the rest of the game. */
 typedef struct LongoBitmapGlyph {
     Rectangle source;
     int advance;
@@ -33,14 +33,14 @@ typedef struct LongoBitmapFont {
 typedef struct LongoRender {
     char asset_root[512];
 
-    /* application surface (GameMaker application_surface) */
+    /* the game world, drawn at the 304x208 logical resolution */
     RenderTexture2D app_surface;
-    /* GUI canvas: bloom composite + Draw GUI events */
+    /* GUI canvas: bloom composite + UI items */
     RenderTexture2D gui_surface;
-    /* global.shadow_surf */
+    /* per-frame shadow silhouette, composited at low alpha */
     RenderTexture2D shadow_surface;
     bool shadow_surface_ready;
-    /* bloom scratch surfaces (obj_bloom_appsrf srf_ping/srf_pong) */
+    /* bloom scratch surfaces for the ping-pong blur */
     RenderTexture2D bloom_ping;
     RenderTexture2D bloom_pong;
 
@@ -62,7 +62,7 @@ typedef struct LongoRender {
     Texture2D tileset1; /* backgrounds/TileSet1.png (the Tiles_3 layer) */
     bool tileset1_loaded;
 
-    LongoBitmapFont font_digits; /* recovered FontDigits (house counter) */
+    LongoBitmapFont font_digits; /* pixel digits (house counter) */
 
     Sound sounds[7];
     bool sound_loaded[7];
@@ -75,8 +75,8 @@ typedef struct LongoRender {
 bool longo_render_init(LongoRender *render, const char *asset_root);
 void longo_render_shutdown(LongoRender *render);
 
-/* Full GameMaker draw phase: shadow surface, application surface, bloom
- * and GUI pass.  Replays the view items the object scripts pushed. */
+/* Full draw phase: shadow surface, application surface, bloom and GUI
+ * pass.  Replays the view items the object scripts pushed. */
 void longo_render_frame(LongoRender *render, const SimWorld *world);
 
 /* Audio dispatch for the sounds the simulation queued this tick. */

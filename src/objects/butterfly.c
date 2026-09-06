@@ -1,9 +1,9 @@
-#include "butterfly.h"
+﻿#include "butterfly.h"
 
 #include <math.h>
 #include <string.h>
 
-#include "../core/gml_math.h"
+#include "../core/sim_math.h"
 #include "../core/rng.h"
 #include "../core/view.h"
 #include "dog.h"
@@ -56,7 +56,7 @@ void butterfly_place(float x, float y)
     }
 }
 
-/* oButterfly step + alarm port: drift, re-aim home, scatter on bark. */
+/* Drift, re-aim home, scatter on bark. */
 void butterfly_tick(const SimInput *input)
 {
     for (int i = 0; i < BUTTERFLY_MAX; i++) {

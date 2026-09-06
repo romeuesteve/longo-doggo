@@ -1,6 +1,6 @@
-/*
- * Butterfly object script: ambient wanderer (oButterfly port).  Purely
- * cosmetic — placed from the room's decor instances.
+﻿/*
+ * Butterfly object script: ambient wanderer.  Purely cosmetic — placed
+ * from the room's decor objects.
  */
 #ifndef LONGO_OBJECT_BUTTERFLY_H
 #define LONGO_OBJECT_BUTTERFLY_H

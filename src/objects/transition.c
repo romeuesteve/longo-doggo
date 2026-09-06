@@ -1,4 +1,4 @@
-#include "transition.h"
+﻿#include "transition.h"
 
 #include <stdio.h>
 
@@ -9,7 +9,7 @@ static TransitionState tr;
 
 void transition_reset(void)
 {
-    /* oTransition create values */
+    /* initial wipe state */
     tr.active = true;
     tr.open = false;
     tr.close = false;
@@ -40,7 +40,7 @@ void transition_request_next(void)
 
 void transition_count_win(void) { tr.room_num++; }
 
-/* oTransition Draw event port, verbatim. */
+/* Draw pass, replayed as pushed. */
 void transition_tick(SimWorld *w)
 {
     if (!tr.active) return;
@@ -62,7 +62,7 @@ void transition_tick(SimWorld *w)
         if (tr.room_num <= 7)
             tr.text_y += (208.0f / 2 + 4 - tr.text_y) * 0.05f;
     } else if (tr.close) {
-        /* GML ran this lerp four times per frame (208/64 passes). */
+        /* four convergence passes per tick close the wipe fast enough. */
         for (int i = 0; i < 4; i++) {
             if (tr.x >= -63.0f) {
                 tr.x += (-64.0f - tr.x) * 0.02f;

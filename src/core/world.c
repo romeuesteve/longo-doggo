@@ -1,8 +1,8 @@
-/*
- * Simulation core: world state, room loading (level_data instances ->
+﻿/*
+ * Simulation core: world state, room loading (level_data objects ->
  * cells + entities), and the tick orchestrator.  Movement rules live in
- * sim_dog.c.  Every rule here is a port of the recovered GML behaviour,
- * translated from bbox probes to cell lookups (see docs/architecture.md).
+ * dog.c.  Rules are expressed as cell lookups over the 16px grid (see
+ * docs/architecture.md).
  */
 #include "world.h"
 #include "../room_tiles.h"
@@ -83,15 +83,14 @@ float world_random_range(float lo, float hi)
 static int rects_strictly_overlap(float ax, float ay, float aw, float ah,
                                   float bx, float by, float bw, float bh)
 {
-    /* GameMaker bbox rule: touching edges do not collide. */
+    /* strictly overlapping rects only: touching edges do not collide. */
     return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
-/* Cells whose 16px probe rect strictly overlaps the placed-object bbox.
- * Note: the original also let a box press a button from the cell below
- * through its 4px lid overlap (sprBox is a fully opaque 16x20 sprite);
- * that reads as a false press in play, so boxes only press from the
- * button's own cell here. */
+/* Cells whose 16px probe rect strictly overlaps the placed-object rect.
+ * A box taller than one cell visually overlaps the button in the cell
+ * below, but counting that reads as a false press in play, so boxes only
+ * press from the button's own cell here. */
 static void compute_zone(SimWorld *w, uint16_t *zone, int *count, float bx,
                          float by, float bw, float bh)
 {
@@ -109,11 +108,10 @@ static void compute_zone(SimWorld *w, uint16_t *zone, int *count, float bx,
     }
 }
 
-/* Cells whose 16px probe rect strictly overlaps the bbox get `kind` (the
- * GameMaker bbox rule: touching edges do not collide).  This is the one
- * bbox -> solid-map rasterizer: every instance that occupies area is
- * loaded through it, scaled or not, so the map matches what the original
- * place_meeting() probes saw. */
+/* Cells whose 16px probe rect strictly overlaps the footprint get `kind`
+ * (touching edges do not collide).  This is the one footprint ->
+ * solid-map rasterizer: every object that occupies area is loaded
+ * through it, scaled or not, so all probes see the same map. */
 static void mark_footprint(SimWorld *w, float bx, float by, float bw,
                            float bh, SolidKind kind)
 {
@@ -128,7 +126,7 @@ static void mark_footprint(SimWorld *w, float bx, float by, float bw,
     }
 }
 
-/* Dialogue texts, ported verbatim from the oTutorial create event. */
+/* The tutorial dialogue texts. */
 static void load_room(SimWorld *w, int room_index)
 {
     const LongoRoom *room = longo_rooms[room_index];
@@ -157,15 +155,16 @@ static void load_room(SimWorld *w, int room_index)
     dialogue_reset();
     flower_reset();
     butterfly_reset();
-    fx_reset(); /* smoke/bark/popups are non-persistent instances */
+    fx_reset(); /* smoke/bark/popups do not survive a room load */
     w->shadows_present = 0;
 
-    for (int i = 0; i < room->instance_count; i++) {
-        const LongoRoomInstance *p = &room->instances[i];
+    for (int i = 0; i < room->object_count; i++) {
+        const LongoRoomObject *p = &room->objects[i];
         switch (p->object) {
         case LONGO_OBJ_BLOCK:
-            /* oBlock is the wall collider; rooms stamp it scaled (xscale *
-             * 16px wide, yscale * 16px tall).  The old single-cell load
+            /* the wall object is the wall collider; rooms stamp it scaled
+             * (xscale * 16px wide, yscale * 16px tall).  The old
+             * single-cell load
              * left most of every scaled wall walkable. */
             mark_footprint(w, p->x, p->y, 16.0f * p->xscale,
                            16.0f * p->yscale, SOLID_WALL);
@@ -203,12 +202,11 @@ static void load_room(SimWorld *w, int room_index)
                                    (int)floorf(p->y / SIM_CELL)));
             break;
         case LONGO_OBJ_GOAL: {
-            /* placed directly (title/tutorial rooms); oGoal's sprite is the
-             * 64x64 sprHouse with origin (32, 64).  The solid mask follows
+            /* placed directly (title/tutorial rooms); the goal sprite is
+             * the 64x64 house with origin (32, 64).  The solid mask follows
              * the house walls (sprite x 9..54 -> 48px centred on the
              * anchor, from the stored cell down); the roof and eaves
-             * overhang stay background (deliberate playability call — the
-             * recovered sprite has a full-image automatic mask). */
+             * overhang stay background so the entrance stays reachable. */
             float gx = p->x - 24;
             float gy = p->y - 32;
             house_place_goal(sim_cell_of((int)floorf(p->x / SIM_CELL),
@@ -217,8 +215,9 @@ static void load_room(SimWorld *w, int room_index)
             break;
         }
         case LONGO_OBJ_HOUSESPAWNER: {
-            /* oHouseSpawner create: goal at (x+8, y+16), win at (x-8, y+16)
-             * with xscale 2 (a 32x32 bbox); wall-width mask like oGoal */
+            /* house spawner: goal at (x+8, y+16), win at (x-8, y+16)
+             * with xscale 2 (a 32x32 footprint); wall-width mask like the
+             * directly placed goal */
             float gx = p->x + 8;
             float gy = p->y + 16;
             float wx = p->x - 8;
@@ -268,13 +267,12 @@ static void load_room(SimWorld *w, int room_index)
     if (have_dog) dog_place(dog_x, dog_y);
     if (title) dog_title_arrangement();
     if (have_tutorial) dialogue_start(room_index);
-    /* oGoalUp create defaults remain to 1; the first house_tick recomputes
-     * it to dog.length - 2.  Initialising here prevents the win from
-     * arming on the load tick itself (house_reset pre-seeds it). */
+    /* house_tick recomputes remain to dog.length - 2 on its first tick;
+     * the pre-seeded 1 prevents the win from arming on the load tick. */
 }
 
 /* ------------------------------------------------------------------ */
-/* Buttons, doors, goal (step + draw-mutation ports)                   */
+/* Buttons, doors, goal                                                */
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
@@ -288,7 +286,7 @@ void sim_tick(SimWorld *w, const SimInput *input)
     w->tick++;
     events_clear();
 
-    /* 1. dog step + pickups (oDog Step, then collision events) */
+    /* 1. dog step + pickups */
     dog_tick(&w->input);
 
     /* 2. world object steps */
@@ -299,12 +297,11 @@ void sim_tick(SimWorld *w, const SimInput *input)
     /* 3. title -> transition request */
     if (w->room_loaded_tick != w->tick) title_tick(&w->input);
 
-    /* 4. transition FSM (may reload the room mid-tick, like the original
-     * persistent instance) */
+    /* 4. transition FSM (may reload the room mid-tick) */
     transition_tick(w);
 
-    /* 5. dialogue (the original skipped instances born this tick, so skip
-     * if the room just changed) */
+    /* 5. dialogue (skipped on the tick a room loads, so a fresh room's
+     * dialogue does not advance immediately) */
     if (w->room_loaded_tick != w->tick) dialogue_tick(&w->input);
 }
 
@@ -388,8 +385,8 @@ void sim_init(unsigned int seed)
     memset(w, 0, sizeof(*w));
     w->rng = seed ? seed : 0x1234u;
     w->tick = 1;
-    /* oTransition persists across rooms like the original persistent
-     * instance (placed only in the title room). */
+    /* The transition outlives room loads (its object is placed only in
+     * the title room but must keep wiping across rooms). */
     transition_reset();
     load_room(w, SIM_ROOM_TITLE);
 }

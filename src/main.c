@@ -1,12 +1,11 @@
 /*
  * Longo Doggo front-end.
  *
- * Runs the simulation at the original 60 FPS room speed (one tick per
- * vsynced frame, like GameMaker) and maps raylib input onto the sim's
- * pressed-edge model.  Movement is one cell per physical key press (the
- * original keyboard_check_pressed); the front-end does not emulate OS
- * key repeat.  After each tick it advances the presentation and plays
- * the sounds the simulation queued.
+ * Runs the simulation at 60 ticks per second (one tick per vsynced
+ * frame) and maps raylib input onto the sim's pressed-edge model.
+ * Movement is one cell per physical key press; the front-end does not
+ * emulate OS key repeat.  After each tick it advances the presentation
+ * and plays the sounds the simulation queued.
  */
 #include "core/world.h"
 #include "render.h"
@@ -40,8 +39,8 @@ int main(void)
         SimInput input;
         memset(&input, 0, sizeof(input));
 
-        /* movement is keyboard_check_pressed in the original oDog Step:
-         * one step per physical press, no OS key repeat */
+        /* movement is edge-triggered: one step per physical press, no
+         * OS key repeat */
         input.pressed_right = IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D);
         input.pressed_left = IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A);
         input.pressed_down = IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S);

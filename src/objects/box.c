@@ -93,14 +93,13 @@ bool box_push(int index, uint16_t from_cell, int dir)
 
 
 /* ------------------------------------------------------------------ */
-/* View: eased position (the original 0.25 box lerp)                   */
+/* View: eased position (0.25 lerp per tick)                           */
 /* ------------------------------------------------------------------ */
 
 static float v_box_x[BOX_MAX], v_box_y[BOX_MAX];
 
-/* A fresh box sits on its cell; only pushed boxes ease (the original
- * oBox x = lerp(x, xx, 0.25) runs from the placed position, never from
- * the origin). */
+/* A fresh box sits on its cell; only pushed boxes ease, starting from
+ * the placed position, never from the origin. */
 static void view_snap(int index)
 {
     v_box_x[index] = (float)(sim_cell_x(boxes[index].cell) * SIM_CELL);
@@ -132,7 +131,7 @@ void box_draw(int shadow)
             view_sprite(0, LONGO_SPR_BOX, 0, v_box_x[i], v_box_y[i] + 5.0f,
                         1.0f, 1.0f, 0.0f, tint, 1.0f);
         } else {
-            /* dynamic depth like the original: -100 - y / 6 */
+            /* dynamic depth: -100 - y / 6 */
             view_sprite((int)(VIEW_DEPTH_BOX_BASE - v_box_y[i] / 6),
                         LONGO_SPR_BOX, 0, v_box_x[i], v_box_y[i], 1.0f, 1.0f,
                         0.0f, tint, 1.0f);

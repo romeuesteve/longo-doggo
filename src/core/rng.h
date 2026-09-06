@@ -1,5 +1,5 @@
 /*
- * Shared xorshift RNG, the stand-in for GML's random()/irandom_range().
+ * Shared xorshift RNG for the gameplay and cosmetic random draws.
  * Each consumer owns one Rng: gameplay draws from SimWorld.rng (seeded by
  * sim_init), and every cosmetic consumer (fx, butterflies, the house
  * pulse) keeps its own stream so view code can never drain or desync the

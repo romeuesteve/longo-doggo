@@ -1,10 +1,10 @@
-/*
+﻿/*
  * Longo Doggo render backend.
  *
  * Pure replay layer: object scripts push view items through core/view.h;
  * this module owns the raylib assets and surfaces and replays the sorted
  * item lists:
- *   - application surface at 304x208 (the original surface_resize size)
+ *   - application surface at the 304x208 logical resolution
  *   - global.shadow_surf rebuilt per frame, composited at 0.2 alpha
  *   - GUI surface: obj_bloom_appsrf bloom composite, then GUI items
  *
@@ -48,9 +48,7 @@ static void select_asset_root(LongoRender *render, const char *requested)
     static const char *candidates[] = {
         "assets/exported-assets",
         "assets",
-        "recovered/exported-assets",
         "../assets/exported-assets",
-        "../recovered/exported-assets",
         NULL
     };
     char probe[1024];
@@ -75,8 +73,8 @@ static void select_asset_root(LongoRender *render, const char *requested)
     }
 }
 
-/* Load every animation frame of one sprite into a horizontal strip so the
- * GameMaker frame index maps to a source rectangle. */
+/* Load every animation frame of one sprite into a horizontal strip so a
+ * frame index maps to a source rectangle. */
 static bool load_sprite(LongoRender *render, LongoSprite sprite)
 {
     const char *name = longo_sprite_name(sprite);
@@ -122,8 +120,8 @@ static bool load_sprite(LongoRender *render, LongoSprite sprite)
     return render->sprite_loaded[sprite];
 }
 
-/* The recovered FontDigits bitmap font, used only for the in-world house
- * counter (font_id 2) so the number stays pixelated with the game. */
+/* The pixelated bitmap digits font, used only for the in-world house
+ * counter (font_id 2) so the number stays crisp with the game. */
 static bool load_bitmap_font(LongoRender *render, LongoBitmapFont *font,
                              const char *image_name, const char *glyph_name)
 {
@@ -380,8 +378,8 @@ static Color to_ray_color(ViewColor c)
     return (Color){ c.r, c.g, c.b, c.a };
 }
 
-/* draw_sprite_ext(): (x, y) is the sprite origin position.  GameMaker
- * maps sprite row 0 to y - oy*yscale and row fh to y + (fh - oy)*yscale,
+/* draw_sprite_origin(): (x, y) is the sprite origin position.  Sprite
+ * row 0 maps to y - oy*yscale and row fh to y + (fh - oy)*yscale,
  * mirroring the texture when a scale is negative — a negative yscale on
  * a top-left origin extends the sprite upward.  raylib only flips via
  * negative source rects, so derive the on-screen AABB, flip the source,
@@ -416,8 +414,9 @@ static void draw_sprite_origin(LongoRender *render, LongoSprite sprite,
     }
     Rectangle dest = { x, y, fabsf(x1 - x0), fabsf(y1 - y0) };
     /* raylib's dest.x/y is where the origin point lands (the quad spans
-     * dest - origin .. dest + size - origin), so dest stays on the GM
-     * origin point and origin carries the offset to the AABB corner */
+     * dest - origin .. dest + size - origin), so dest stays on the
+     * sprite's origin point and origin carries the offset to the AABB
+     * corner */
     Vector2 origin = { x - fminf(x0, x1), y - fminf(y0, y1) };
     Color c = tint;
     c.a = (unsigned char)(255.0f * alpha + 0.5f);
@@ -426,7 +425,8 @@ static void draw_sprite_origin(LongoRender *render, LongoSprite sprite,
 }
 
 /* draw_sprite_part_ext(): source region in frame coordinates, clipped to
- * the frame bounds like GameMaker's draw_sprite_part*; no origin offset. */static void draw_sprite_part_ext(LongoRender *render, LongoSprite sprite,
+ * the frame bounds; no origin offset. */
+static void draw_sprite_part_ext(LongoRender *render, LongoSprite sprite,
                                  int frame, int src_x, int src_y, int src_w,
                                  int src_h, float x, float y, float xscale,
                                  float yscale, Color tint, float alpha)
@@ -453,8 +453,7 @@ static void draw_sprite_origin(LongoRender *render, LongoSprite sprite,
 }
 
 /* 9-slice panel: the corners keep their native size, the edges and the
- * centre cell stretch to the destination rect (the dialogue panel; the
- * original just scaled the whole 24x24 sprite). */
+ * centre cell stretch to the destination rect (the dialogue panel). */
 static void draw_nine_patch(LongoRender *render, LongoSprite sprite,
                             int frame, float x, float y, float w, float h,
                             Color tint, float alpha)
@@ -513,16 +512,14 @@ static void draw_line_width_color(Vector2 a, Vector2 b, float width, Color c1,
 }
 
 /* --------------------------------------------------------------- */
-/* Text: Renogare at window resolution; recovered digits in-world      */
+/* Text: Renogare at window resolution; pixel digits in-world         */
 /* --------------------------------------------------------------- */
 
 /* UI text renders with Renogare (repo assets/fonts; converted to
  * TrueType outlines so stb_truetype can rasterize it).  The atlas is
  * baked at the drawn pixel size (logical 10px * the 4x window scale)
- * with point filtering, so text is crisp instead of blurry.  The
- * recovered GameMaker fonts were an 8px "DejaVu Sans" bitmap that turns
- * to mush inside the 304x208 surface.  Alignment follows the recovered
- * draw state: font 0 (bold) left-aligned, fonts 1/2 centered. */
+ * with point filtering, so text is crisp inside the low-res surface.
+ * Alignment: font 0 (bold) left-aligned, fonts 1/2 centered. */
 
 #define LONGO_TEXT_BASE_PX (10.0f * (float)LONGO_WINDOW_SCALE)
 
@@ -637,7 +634,7 @@ static void draw_text_wrapped(Font font, const char *text, float x, float y,
 }
 
 /* Present-pass replay of the UI text items (everything except the
- * recovered digits font), in push order per layer. */
+ * pixel digits font), in push order per layer. */
 static void draw_text_items_window_scale(LongoRender *render)
 {
     Font font = text_font(render);
@@ -761,7 +758,7 @@ static void replay_item(LongoRender *render, const SimWorld *world,
         break;
     case VIEW_ITEM_TEXT:
         if (it->font_id == 2 && render->font_digits.loaded) {
-            /* the house counter keeps the recovered pixel font and lives
+            /* the house counter keeps the pixel digits font and lives
              * inside the low-res surface with everything else */
             draw_bitmap_text(&render->font_digits, it->text, it->x, it->y,
                              true, to_ray_color(it->color));

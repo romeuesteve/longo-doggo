@@ -41,7 +41,7 @@ typedef struct LongoRoomTileMap {
     int background_depth;
     int shadows_depth;
     int flowers_depth;
-    int instances_depth;
+    int objects_depth;
     int blocks_depth;
     int gui_depth;
 } LongoRoomTileMap;

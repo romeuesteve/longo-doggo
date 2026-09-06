@@ -1,10 +1,10 @@
-#include "fx.h"
+﻿#include "fx.h"
 
 #include <math.h>
 #include <string.h>
 
 #include "../core/events.h"
-#include "../core/gml_math.h"
+#include "../core/sim_math.h"
 #include "../core/rng.h"
 
 #define FX_MAX_SMOKE 160
@@ -95,7 +95,7 @@ static void spawn_smoke_burst(float x, float y, int count)
 
 void fx_tick(void)
 {
-    /* advance existing particles (oSmoke motion + draw mutations) */
+    /* advance existing particles (smoke motion + draw mutations) */
     for (int i = 0; i < smoke_cnt; i++) {
         Smoke *s = &smoke[i];
         if (!s->alive) continue;

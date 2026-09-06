@@ -18,7 +18,7 @@ cmake --build build/native --parallel
 
 The `MinGW Makefiles` generator selects the installed GCC/MinGW toolchain. The
 game executable is `build/native/longo_doggo.exe` (or the equivalent path for
-the build directory you choose). The recovered runtime export is copied beside
+the build directory you choose). The runtime assets are copied beside
 it at `assets/exported-assets/`, so launching from the build directory works
 without extra setup.
 
@@ -35,7 +35,7 @@ cmake --build build/web --parallel
 ```
 
 This produces `longo_doggo.html` together with its `.js` and `.wasm` files in
-`build/web`. The recovered runtime export is copied beside the generated shell
+`build/web`. The runtime assets are copied beside the generated shell
 under `build/web/assets/exported-assets/`. Serve that directory over HTTP for
 browser testing; opening the HTML file directly can prevent WebAssembly or asset
 loading in some browsers.

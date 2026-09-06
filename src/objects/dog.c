@@ -1,15 +1,14 @@
-/*
+﻿/*
  * Dog rules: fully tile-based.
  *
  * The head occupies a cell; a step snaps it into the adjacent cell
  * instantly and the body chain shifts one cell along (classic snake).
- * Movement rules are ports of the recovered GML behaviours translated
- * from bbox probes to cell lookups:
- *   - MoveDogX/MoveDogY: instant 16px logical step, facing update
- *   - the +10/+8 bbox probes: solid_probe() / box_push()
+ * Movement rules, in cell terms:
+ *   - one instant 16px logical step per accepted press, facing update
+ *   - the step is allowed by solid_probe() and moved by box_push()
  *   - the tail exception: the last chain cell does not block, because it
  *     vacates in the same tick
- *   - oApple/oSkull/oWin collision events: pickups on the head's new cell
+ *   - pickups trigger on the head's new cell
  */
 #include "dog.h"
 
@@ -17,7 +16,7 @@
 #include <string.h>
 
 #include "../core/events.h"
-#include "../core/gml_math.h"
+#include "../core/sim_math.h"
 #include "../core/view.h"
 #include "../core/solid.h"
 #include "box.h"
@@ -27,21 +26,21 @@
 #include "transition.h"
 
 #define DOG_MAX_CHAIN 64
-/* alarm[1] = 2 after each step: key_cooldown gates the next press for two
+/* key_cooldown is 2 after each step: it gates the next press for two
  * ticks, so even mashing moves at most one cell every 2 ticks */
 #define DOG_KEY_COOLDOWN 2
 
 typedef struct Dog {
     bool alive;
     int cx, cy;  /* head cell */
-    int dir;     /* 0 down, 90 right, 180 up, 270 left (GameMaker degrees) */
+    int dir;     /* 0 down, 90 right, 180 up, 270 left (degrees, y-down) */
     bool play;   /* dialogue gating */
     int length;  /* number of body parts */
     uint16_t chain[DOG_MAX_CHAIN];
     uint8_t pflag[DOG_MAX_CHAIN];
     bool strain;      /* blocked on the last attempted step (logical only) */
     int key_cooldown; /* ticks until the next movement press is accepted */
-    int bark_timer;   /* idle bark alarm, -1 = disabled (title only) */
+    int bark_timer;   /* ticks until the idle bark, -1 = disabled */
     int detached_cell; /* cell the tail vacated on the last step */
 } Dog;
 
@@ -51,7 +50,7 @@ static uint16_t head_cell(void) { return sim_cell_of(dog.cx, dog.cy); }
 
 static int sign(int v) { return (v > 0) - (v < 0); }
 
-/* Placement must initialise the eased view position (a fresh instance
+/* Placement must initialise the eased view position (a fresh object
  * never eases in from the origin). */
 static void view_snap(void);
 static void view_part_snap(int index, uint16_t cell);
@@ -95,12 +94,12 @@ void dog_place(float x, float y)
     view_snap();
 }
 
-/* The title room rearranges the dog into an S-curve (port of the oTitle
- * create event) and arms its idle bark. */
+/* The title room rearranges the dog into an S-curve and arms its idle
+ * bark. */
 void dog_title_arrangement(void)
 {
-    /* head first, then the five parts of the S-curve (pixel coords in the
-     * oTitle create event, snapped to cells) */
+    /* head first, then the five parts of the S-curve (pixel coords,
+     * snapped to cells) */
     static const int cells[6][2] = {
         { 10, 10 }, { 10, 9 }, { 9, 9 }, { 8, 9 }, { 8, 10 }, { 9, 10 }
     };
@@ -207,8 +206,8 @@ static void grow_chain(uint16_t at_cell)
     dog.pflag[dog.length - 1] = DOG_PART_BUTT;
     dog.chain[dog.length] = at_cell;
     dog.pflag[dog.length] = DOG_PART_LEGS;
-    /* the original creates the new part at ins[length-2].xprev/yprev —
-     * the cell that just emptied — and its xx/yy start there */
+    /* the new part starts in the cell that just emptied, and its eased
+     * view position snaps there */
     view_part_snap(dog.length, at_cell);
     dog.length++;
     place_on_solid_map();
@@ -237,7 +236,7 @@ static void emit_bark(void)
     events_sound(SND_BARK, 0);
 }
 
-/* Pickups on the head's new cell (oApple/oSkull/oWin collision events). */
+/* Pickups on the head's new cell (apple, skull, win zone). */
 static void resolve_pickups(void)
 {
     uint16_t head = head_cell();
@@ -264,8 +263,8 @@ static void resolve_pickups(void)
                       (float)(sim_cell_y(tail) * SIM_CELL + 8), 0, 0, 0, 7, 0);
             events_fx(FX_ONE, hx, hy - 8.0f, 0, 0, 0, 0, 1);
         } else {
-            /* eating a pear at minimum length destroys the dog (original
-             * behaviour; the room softlocks until retry) */
+            /* eating a pear at minimum length destroys the dog; the
+             * room softlocks until retry */
             dog.alive = false;
             solid_clear(head);
         }
@@ -315,7 +314,7 @@ void dog_tick(const SimInput *input)
 {
     if (!dog.alive) return;
 
-    /* oDog Step: R retries unless a wipe is closing */
+    /* R retries unless a wipe is closing */
     if (input->pressed_r && !transition_closing()) transition_request_retry();
 
     /* the title screen parks the dog */
@@ -325,9 +324,8 @@ void dog_tick(const SimInput *input)
 
     if (dog.key_cooldown > 0) dog.key_cooldown--;
 
-    /* oDog Step: xmove/ymove are keyboard_check_pressed edges, and the
-     * move only fires while key_cooldown is clear.  Horizontal wins
-     * diagonal input, like the original's xmove-first check. */
+    /* xmove/ymove are the pressed edges; the move only fires while
+     * key_cooldown is clear.  Horizontal wins diagonal input. */
     int xm = sign((input->pressed_right ? 1 : 0) - (input->pressed_left ? 1 : 0));
     int ym = sign((input->pressed_down ? 1 : 0) - (input->pressed_up ? 1 : 0));
 
@@ -337,7 +335,7 @@ void dog_tick(const SimInput *input)
         if (moved) dog.key_cooldown = DOG_KEY_COOLDOWN;
     }
 
-    /* idle bark (armed only by the title room, like the oDog alarm) */
+    /* idle bark (armed only by the title room) */
     if (dog.bark_timer > 0) {
         if (--dog.bark_timer == 0) {
             if (world_random(1.0f) < 0.2f) emit_bark();
@@ -376,8 +374,7 @@ static void view_snap(void)
 
 void dog_view_tick(void)
 {
-    /* the original xx/yy lerp, now the only interpolation path; targets
-     * are sprite centres (cell top-left + 8), like the old instances */
+    /* eased view position; targets are sprite centres (cell top-left + 8) */
     float tx = (float)(dog.cx * SIM_CELL + 8);
     float ty = (float)(dog.cy * SIM_CELL + 8);
     if (dog.alive) {
@@ -391,7 +388,7 @@ void dog_view_tick(void)
         if (v_wiggle[i] > 0) v_wiggle[i]--;
         if (v_part_cell[i] != cell) {
             v_part_cell[i] = cell;
-            v_wiggle[i] = 15; /* legs_angle = 30, alarm0 = 15 */
+            v_wiggle[i] = 15; /* half-way through the 30-tick leg cycle */
         }
         v_part_x[i] = f_lerp(v_part_x[i], ptx, 0.2f);
         v_part_y[i] = f_lerp(v_part_y[i], pty, 0.2f);
@@ -406,9 +403,8 @@ static float legs_angle(int part)
     return v_wiggle[part] > 0 ? 30.0f : 0.0f;
 }
 
-/* draw_sprite_ext() of the body chain, then the head sprite; the shadow
- * pass repeats the same shapes in black, flipped below the origin like
- * oShadows. */
+/* Body chain first, then the head sprite; the shadow pass repeats the
+ * same shapes in black, flipped below the origin like every shadow. */
 static void draw_body(bool shadow)
 {
     const ViewColor body = view_rgb(153, 108, 53);

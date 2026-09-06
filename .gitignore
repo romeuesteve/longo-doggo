@@ -23,7 +23,3 @@ Makefile
 *.wasm
 *.html
 *.js
-
-# Third-party recovery tooling (downloadable, 190MB+; not project material)
-recovered/utmt-cli/
-recovered/UTMT_CLI_*.zip

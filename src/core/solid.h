@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Shared occupancy/solidity feature.
  *
  * Every cell-occupying object registers itself here (walls, holes, doors,
@@ -19,7 +19,7 @@
 
 typedef enum SolidKind {
     SOLID_EMPTY = 0,
-    SOLID_WALL,   /* static oBlock */
+    SOLID_WALL,   /* static wall block */
     SOLID_GOAL,   /* house footprint */
     SOLID_HOLE,   /* open hole; a filled hole stops being solid */
     SOLID_DOOR,   /* removed from the map when it poofs */

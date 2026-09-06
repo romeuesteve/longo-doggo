@@ -1,8 +1,7 @@
 /*
- * Transition object script: the level-wipe state machine (ported as-is;
- * it is the one script that keeps animated floats).  It persists across
- * room loads like the original persistent instance.  At the wipe midpoint
- * it applies the pending room change through the world.
+ * Transition object script: the level-wipe state machine (the one script
+ * that keeps animated floats).  It persists across room loads.  At the
+ * wipe midpoint it applies the pending room change through the world.
  */
 #ifndef LONGO_OBJECT_TRANSITION_H
 #define LONGO_OBJECT_TRANSITION_H

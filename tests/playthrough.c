@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Headless full-flow driver: replays the exact input sequence that the
  * live verification used (any key on the title, seven space presses at
  * 250 ms, then holding right) and reports the resulting states, so the
@@ -51,9 +51,8 @@ int main(void)
                transition_closing() ? 1 : 0, world.room_index);
     }
 
-    /* tap right every 10 ticks for 3 seconds (the original moves one cell
-     * per keyboard_check_pressed, not while held), reporting every half
-     * second */
+    /* tap right every 10 ticks for 3 seconds (movement is one cell per
+     * press, not while held), reporting every half second */
     for (int t = 0; t < 180; t++) {
         in.pressed_right = (t % 10 == 0);
         tick(&in);

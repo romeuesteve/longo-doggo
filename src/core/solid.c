@@ -42,9 +42,9 @@ SolidProbe solid_probe(uint16_t cell)
         return hole_is_full(cells[cell].index) ? SOLID_PROBE_FREE
                                                : SOLID_PROBE_SOLID;
     case SOLID_BODY:
-        /* per-kind semantics stay with the owner: the tail part has
-         * block = 0 in the original, so the dog (and a pushed box) may
-         * take its cell; it vacates in the same tick */
+        /* per-kind semantics stay with the owner: the tail part is not
+         * solid, so the dog (and a pushed box) may take its cell; it
+         * vacates in the same tick */
         return dog_part_is_solid(cells[cell].index) ? SOLID_PROBE_SOLID
                                                     : SOLID_PROBE_FREE;
     case SOLID_WALL:

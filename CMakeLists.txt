@@ -97,17 +97,17 @@ if(LONGO_DOGGO_BUILD_GAME AND NOT LONGO_DOGGO_MISSING_SOURCES)
     target_compile_features(longo_doggo PRIVATE c_std_99)
     target_link_libraries(longo_doggo PRIVATE raylib)
 
-    # Keep a runnable build self-contained while leaving the original recovery
-    # export untouched. The renderer looks for assets/exported-assets first.
-    set(LONGO_RECOVERED_ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/recovered/exported-assets")
-    if(EXISTS "${LONGO_RECOVERED_ASSETS}")
+    # Keep a runnable build self-contained: the runtime assets live under
+    # assets/exported-assets and are copied beside the executable.
+    set(LONGO_RUNTIME_ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/assets/exported-assets")
+    if(EXISTS "${LONGO_RUNTIME_ASSETS}")
         add_custom_command(TARGET longo_doggo POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
                     "$<TARGET_FILE_DIR:longo_doggo>/assets/exported-assets"
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    "${LONGO_RECOVERED_ASSETS}"
+                    "${LONGO_RUNTIME_ASSETS}"
                     "$<TARGET_FILE_DIR:longo_doggo>/assets/exported-assets"
-            COMMENT "Copying recovered runtime assets beside longo_doggo")
+            COMMENT "Copying runtime assets beside longo_doggo")
     endif()
 
     # The UI font (Renogare, see assets/fonts for its license) is repo-local.

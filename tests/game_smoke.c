@@ -1,6 +1,6 @@
-/*
+﻿/*
  * Headless smoke tests for the simulation core.
- * Runs the recovered rooms with deterministic input and asserts the ported
+ * Runs every room with deterministic input and asserts the gameplay
  * rules: runtime room order, dialogue gating, tile-based movement cadence,
  * chain follow, apple/skull length changes, box push/hole fill,
  * simultaneous button/door logic, the win transition order, and retry.
@@ -46,7 +46,7 @@ static int hole_at_cell(int cx, int cy)
     return hole_index_at(sim_cell_of(cx, cy));
 }
 
-/* one movement press, spaced past the key_cooldown (alarm[1] = 2) */
+/* one movement press, spaced past the key_cooldown (it lasts 2 ticks) */
 static void press_dir(int dir)
 {
     SimInput in;
@@ -70,7 +70,7 @@ static void test_title_flow_and_room_order(void)
     assert(world.room_index == SIM_ROOM_TITLE);
     assert(strcmp(world.room->name, "rm_title_screen") == 0);
     assert(title_present());
-    assert(transition_state()->active); /* persistent from the title room */
+    assert(transition_state()->active); /* active from the title room */
     assert(dog_alive());
     assert(dog_length() == 5);
 
@@ -119,12 +119,12 @@ static void test_movement_and_chain(void)
     assert(dog_dir() == 90);
 
     /* the key_cooldown gate: an immediate re-press is swallowed
-     * (alarm[1] = 2 keeps the move locked for the next tick) */
+     * (the cooldown keeps the move locked for the next tick) */
     tick_with(&input);
     assert(dog_cx() == start_x + 1); /* cooldown still counting */
 
-    /* holding the key alone produces nothing further: the original
-     * oDog Step moves on keyboard_check_pressed, not held keys */
+    /* holding the key alone produces nothing further: movement is
+     * edge-triggered, one step per press, not held keys */
     tick_idle(5);
     assert(dog_cx() == start_x + 1);
 
@@ -142,7 +142,7 @@ static void test_movement_and_chain(void)
 
 static void test_room_load_rules(void)
 {
-    /* scaled oBlock instances must blanket every cell their scaled bbox
+    /* scaled wall stamps must blanket every cell their scaled footprint
      * covers: the tutorial border is stamped as 19x1 / 1x12.5 blocks */
     sim_room_goto(world_ptr(), SIM_ROOM_TUTORIAL);
     tick_idle(2);
@@ -195,7 +195,7 @@ static void test_room_load_rules(void)
     assert(dog_strain());
     assert(dog_cx() == 17 && dog_cy() == 5);
 
-    /* the tail part is not solid (block = 0 in the original): wrap a
+    /* the tail part is not solid: wrap a
      * length-3 dog around a 4-cell loop; from the fourth step on, the
      * head steps onto the cell the tail occupies every single move */
     dog_set_length(3);
@@ -218,8 +218,8 @@ static void test_room_load_rules(void)
     assert(dog_visual_x() == (float)(dog_cx() * 16 + 8));
     assert(dog_visual_y() == (float)(dog_cy() * 16 + 8));
 
-    /* oSkull draws sprPear (the recovered object table), one item per
-     * pushed view sprite */
+    /* the skull item draws the pear sprite, one item per pushed view
+     * sprite */
     view_begin_frame();
     items_draw(0);
     {
@@ -234,7 +234,7 @@ static void test_room_load_rules(void)
         assert(pears == skull_count());
     }
 
-    /* the house counter keeps the recovered digits font (font_id 2) */
+    /* the house counter keeps the pixel digits font (font_id 2) */
     view_begin_frame();
     house_draw(0);
     {
@@ -247,8 +247,8 @@ static void test_room_load_rules(void)
         assert(digits_items == 2); /* shadow + main */
     }
 
-    /* the house anchors on the oGoal instance (bottom-centre, sprHouse
-     * origin (32,64)) and oGoalUp redraws the top 44 rows above it */
+    /* the house anchors bottom-centre (sprHouse origin (32,64)) and the
+     * squash pass redraws the top 44 rows above it */
     view_begin_frame();
     house_draw(0);
     {
@@ -273,8 +273,8 @@ static void test_room_load_rules(void)
         assert(crop == 1);
     }
 
-    /* level1 places the house through oHouseSpawner and has boxes: the
-     * spawned goal anchors at (x+8, y+16) and box views start on-cell */
+    /* level1 places the house through the house spawner and has boxes:
+     * the spawned goal anchors at (x+8, y+16) and box views start on-cell */
     sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
     tick_idle(2);
     assert(box_count() > 0);
@@ -287,7 +287,7 @@ static void test_room_load_rules(void)
     {
         int count = 0;
         const ViewItem *items = view_items(VIEW_WORLD, &count);
-        /* spawner at (64,48): goal instance at (72,64) */
+        /* spawner at (64,48): goal at (72,64) */
         for (int i = 0; i < count; i++) {
             if (items[i].sprite != LONGO_SPR_HOUSE) continue;
             if (items[i].kind == VIEW_ITEM_SPRITE)
@@ -354,7 +354,7 @@ static void test_apple_and_skull_length(void)
     input.pressed_right = 1;
     tick_with(&input);
     tick_idle(1);
-    /* eating a pear at length 2 destroys the dog (original behaviour) */
+    /* eating a pear at length 2 destroys the dog */
     assert(!dog_alive());
 }
 
@@ -404,7 +404,7 @@ static void test_walls_and_push_rules(void)
         tick_idle(1);
     }
 
-    /* holes render via oHole's draw event; the filled one shows frame 1 */
+    /* holes render via the hole sprite; the filled one shows frame 1 */
     view_begin_frame();
     hole_draw();
     {
@@ -453,8 +453,8 @@ static void test_buttons_door_win_retry(void)
     tick_idle(2);
     assert(!door_open(0));
 
-    /* a box on the cell below a button must not press it: the original's
-     * 4px lid overlap read as a false press and was dropped */
+    /* a box on the cell below a button must not press it: its visual
+     * overlap would read as a false press */
     {
         uint16_t own = button_zone_cell(0, 0);
         uint16_t below = sim_cell_of(sim_cell_x(own), sim_cell_y(own) + 1);
@@ -516,7 +516,7 @@ static void test_buttons_door_win_retry(void)
     dog_set_alive(false);
     tick_idle(1);
 
-    /* the head's cell counts as pressing (the original stupidblock) */
+    /* the head's own cell counts as pressing */
     dog_set_alive(true);
     dog_set_length(0);
     dog_teleport(sim_cell_x(button_zone_cell(0, 0)),

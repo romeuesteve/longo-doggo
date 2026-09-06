@@ -1,4 +1,4 @@
-#include "dialogue.h"
+﻿#include "dialogue.h"
 
 #include <string.h>
 
@@ -21,7 +21,7 @@ typedef struct Dialogue {
 
 static Dialogue dlg;
 
-/* Texts ported verbatim from the oTutorial create event. */
+/* The tutorial lines. */
 static const char *const TUTORIAL_TEXTS[7] = {
     "This is Longo Doggo",
     "He wants to enter his house, but he's too long so there's no room for him",
@@ -115,7 +115,7 @@ void dialogue_start(int room_index)
     if (dlg.gates_play) dog_set_play(false);
 }
 
-/* oTutorial Draw event port; the box scale easing is view-side. */
+/* Draw pass; the box scale easing is view-side. */
 static bool advance_pressed; /* this tick's advance edge, for the view */
 
 void dialogue_tick(const SimInput *input)
@@ -182,9 +182,9 @@ void dialogue_draw(void)
     if (box->text == NULL) return;
     float wave = longo_wave(0, 2, 2, 0, view_time_ms());
 
-    /* the bubble is a 9-slice panel covering the same rect the original's
-     * scaled 24x24 sprite occupied (scale eases for the pop-in/bounce);
-     * depth 1 keeps the panel behind the depth-0 text */
+    /* the bubble is a 9-slice panel matching the rect the scaled 24x24
+     * sprite occupied (scale eases for the pop-in/bounce); depth 1 keeps
+     * the panel behind the depth-0 text */
     float w = 24.0f * v_scale_x;
     float h = 24.0f * v_scale_y;
     view_nine_patch(1, LONGO_SPR_DIALOGUEBOX, 0, box->x - w * 0.5f,

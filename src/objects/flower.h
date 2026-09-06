@@ -1,6 +1,6 @@
-/*
+﻿/*
  * Flower object script: decorative swaying flowers placed from the room's
- * decor instances.  The dog's animation clock follows theirs.
+ * decor objects.  The dog's animation clock follows theirs.
  */
 #ifndef LONGO_OBJECT_FLOWER_H
 #define LONGO_OBJECT_FLOWER_H

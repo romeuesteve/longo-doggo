@@ -1,7 +1,8 @@
 /*
- * Sprite asset metadata recovered from data.win, shared by the simulation
- * (placement -> cell mapping) and the renderer (frame advance, origins).
- * The numeric order matches GameMaker's sprite table.
+ * Sprite asset metadata (frame counts, origins, playback speeds) shared
+ * by the simulation (placement -> cell mapping) and the renderer (frame
+ * advance, origins).  The numeric order matches the exported asset
+ * table under assets/exported-assets.
  */
 #ifndef LONGO_SPRITES_H
 #define LONGO_SPRITES_H
@@ -43,8 +44,8 @@ typedef struct LongoSpriteInfo {
     int width, height;
     int origin_x, origin_y;
     int frames;
-    int fps; /* GameMaker sprite-editor playback speed; image_index advances
-                by image_speed * fps / 60 per tick */
+    int fps; /* playback speed; the animation clock advances by
+                fps / 60 frames per tick */
 } LongoSpriteInfo;
 
 const LongoSpriteInfo *longo_sprite_info(int sprite);
@@ -54,7 +55,7 @@ int longo_sprite_origin_x(int sprite);
 int longo_sprite_origin_y(int sprite);
 int longo_sprite_frames(int sprite);
 
-/* The recovered Wave() global script (title/goal/dialogue wobble). */
+/* Sine wobble shared by the title, goal and dialogue text. */
 float longo_wave(float a, float b, float period, float phase, double time_ms);
 
 #endif /* LONGO_SPRITES_H */

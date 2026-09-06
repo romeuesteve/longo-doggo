@@ -1,4 +1,4 @@
-#include "door.h"
+﻿#include "door.h"
 
 #include <string.h>
 
@@ -7,8 +7,8 @@
 #include "../core/solid.h"
 #include "../core/world.h"
 
-/* The open animation eases scale 1 -> 1.2 at 0.1/tick and poofs past 1.15
- * (14 ticks); the cell stays solid for that duration, like the original. */
+/* The open animation eases scale 1 -> 1.2 at 0.1/tick and poofs past 1.15;
+ * the cell stays solid for those 14 ticks. */
 #define DOOR_OPEN_TICKS 14
 
 typedef struct Door {
@@ -111,9 +111,9 @@ void door_draw(int shadow)
     for (int i = 0; i < door_cnt; i++) {
         if (!doors[i].alive) continue;
         if (shadow) {
-            /* oShadows draws the door's shadow at the instance's live
-             * x/y (it shifts during the open squash), flipped below:
-             * draw_sprite_ext(sprDoor, 0, x, y + 22, 1, -0.4, ...) */
+            /* the door's shadow sits at its live x/y (it shifts during
+             * the open squash), flipped below the origin: sprDoor at
+             * (x, y + 22) with yscale -0.4 */
             view_sprite(0, LONGO_SPR_DOOR, 0, v_doors[i].x,
                         v_doors[i].y + 22.0f, 1.0f, -0.4f, 0.0f, tint, 1.0f);
         } else {

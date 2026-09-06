@@ -41,7 +41,7 @@ bool dog_strain(void);
 uint16_t dog_detached_cell(void); /* cell the tail last vacated */
 
 /* View: easing tick (60 Hz) and draws.  shadow selects the shadow-surface
- * pass; both reproduce the original oDog/oDogPart Draw events. */
+ * pass; both replay the dog and its body parts. */
 void dog_view_tick(void);
 void dog_draw(int shadow);
 float dog_visual_x(void);

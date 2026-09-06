@@ -22,7 +22,7 @@ void view_begin_frame(void)
     layers[VIEW_WORLD].count = 0;
     layers[VIEW_GUI].count = 0;
     time_ms += 1000.0 / 60.0;
-    /* image_index += image_speed * fps / 60, like GameMaker */
+    /* advance each sprite clock by fps / 60 frames */
     for (int s = 1; s < VIEW_SPRITE_CLOCKS; s++) {
         const LongoSpriteInfo *info = longo_sprite_info(s);
         if (info != NULL && info->fps > 0)

@@ -1,4 +1,4 @@
-#include "house.h"
+﻿#include "house.h"
 
 #include <string.h>
 
@@ -21,7 +21,7 @@ typedef struct House {
 
 static House house;
 
-/* view state: house pulse (oGoalUp count/count2 squash) */
+/* view state: house pulse (count/count2 squash) */
 static int v_count = 200, v_count2;
 static float v_scale_x = 1.0f, v_scale_y = 1.0f;
 
@@ -35,7 +35,7 @@ void house_reset(void)
     v_count = 200;
     v_count2 = 0;
     v_scale_x = v_scale_y = 1.0f;
-    /* oGoalUp create defaults remain to 1; the first tick recomputes it.
+    /* remain starts at 1 (never zero); the first tick recomputes it.
      * Initialising here prevents the win from arming on the load tick. */
     house.remain = 1;
 }
@@ -98,8 +98,8 @@ static float wave_pulse(int c)
 void house_view_tick(void)
 {
     if (!house.alive) return;
-    /* the oGoal instance position: stored cell holds oGoal.y - 32, so the
-     * anchor is two cells down */
+    /* the stored cell holds the house's y minus 32, so the anchor is two
+     * cells down */
     float px = (float)(sim_cell_x(house.goal_cell) * SIM_CELL + 8);
     float py = (float)(sim_cell_y(house.goal_cell) * SIM_CELL + 32);
     int win_ready = house.remain <= 0;
@@ -135,9 +135,9 @@ void house_draw(int shadow)
     if (!house.alive) return;
     view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
     ViewColor tint = shadow ? view_rgb(0, 0, 0) : view_rgb(255, 255, 255);
-    /* the oGoal instance position: stored cell holds oGoal.y - 32, so the
-     * anchor (sprHouse origin, the house's bottom-centre) is two cells
-     * below the stored cell's top */
+    /* the stored cell holds the house's y minus 32, so the anchor (the
+     * sprHouse origin, the house's bottom-centre) is two cells below the
+     * stored cell's top */
     float gx = (float)(sim_cell_x(house.goal_cell) * SIM_CELL + 8);
     float gy = (float)(sim_cell_y(house.goal_cell) * SIM_CELL + 32);
 
@@ -147,12 +147,13 @@ void house_draw(int shadow)
         return;
     }
     int frame = house.remain <= 0 ? 1 : 0;
-    /* oGoal draws itself: the full 64x64 sprHouse, origin (32,64),
-     * unscaled (its own draw event) */
+    /* the house base sprite: the full 64x64 sprHouse, origin (32,64),
+     * unscaled */
     view_sprite(VIEW_DEPTH_GOAL, LONGO_SPR_HOUSE, frame, gx, gy, 1.0f, 1.0f,
                 0.0f, tint, 1.0f);
-    /* oGoalUp then redraws the top 44 rows with the squash pulse; without
-     * this the base sprite's bottom rows are missing (depth -220) */
+    /* the squash pulse redraws the top 44 rows on top of the base
+     * sprite; without it the base sprite's bottom rows are missing
+     * (depth -220) */
     view_sprite_part(VIEW_DEPTH_GOAL_OVERLAY, LONGO_SPR_HOUSE, frame, 0, 0, 64,
                      44, gx - (32.0f * v_scale_x), gy - (64.0f * v_scale_y),
                      v_scale_x, v_scale_y, tint, 1.0f);

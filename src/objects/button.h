@@ -13,7 +13,7 @@
 
 void button_reset(void);
 /* The zone is computed by the world's placement pass: the cells whose
- * 16px probe rect strictly overlaps the button's bbox. */
+ * 16px probe rect strictly overlaps the button's footprint. */
 void button_place(const uint16_t *zone, int zone_count);
 
 void button_tick(void);

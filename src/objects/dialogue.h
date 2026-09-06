@@ -1,5 +1,5 @@
-/*
- * Dialogue object script: the tutorial/credits speech boxes (oTutorial).
+﻿/*
+ * Dialogue object script: the tutorial/credits speech boxes.
  * Gates the dog until every box has been advanced past.
  */
 #ifndef LONGO_OBJECT_DIALOGUE_H

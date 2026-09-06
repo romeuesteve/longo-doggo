@@ -1,4 +1,4 @@
-#include "hole.h"
+﻿#include "hole.h"
 
 #include <string.h>
 
@@ -51,7 +51,7 @@ int hole_index_at(uint16_t cell)
     return -1;
 }
 
-/* oHole draw event: draw_sprite(sprHole, full ? 1 : 0, x, y) at depth 200. */
+/* Hole sprite: frame 1 when filled, drawn at depth 200. */
 void hole_draw(void)
 {
     view_layer(VIEW_WORLD);

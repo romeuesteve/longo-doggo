@@ -16,8 +16,8 @@ void house_reset(void);
 void house_place_goal(uint16_t goal_cell);
 void house_place_win_zone(const uint16_t *cells, int count);
 
-/* remain := dog_length - 2 (pass -1 when the dog is dead: stays stale,
- * like the original); plays the win jingle on the ready edge. */
+/* remain := dog_length - 2 (pass -1 when the dog is dead: the counter
+ * keeps its last value); plays the win jingle on the ready edge. */
 void house_tick(int dog_length);
 
 bool house_alive(void);
