@@ -41,7 +41,7 @@ void title_draw(int shadow)
     if (!present) return;
     view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
     ViewColor tint = shadow ? view_rgb(0, 0, 0) : view_rgb(255, 255, 255);
-    float alpha = shadow ? 0.5f : 1.0f;
+    float alpha = 1.0f;
     /* title placement: x = 304/4 - 20, y = 208/4 - 20 */
     float x = 304.0f / 4.0f - 20.0f;
     float y = 208.0f / 4.0f - 20.0f;
