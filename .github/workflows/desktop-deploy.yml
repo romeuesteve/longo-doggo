@@ -33,10 +33,11 @@ jobs:
           chmod +x stage/longo_doggo
       - name: Install butler
         run: |
-          curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          curl --fail --location --retry 3 -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
           unzip -o butler.zip -d butler-bin
           echo "$PWD/butler-bin" >> "$GITHUB_PATH"
-          butler --version
+          chmod +x butler-bin/butler
+          ./butler-bin/butler --version
       - name: Push to itch.io
         run: butler push stage romeuski/longo-doggo:linux
         env:
@@ -46,8 +47,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - { runner: macos-13, artifact: mac-x64 }
-          - { runner: macos-14, artifact: mac-arm64 }
+          - { runner: macos-15-intel, artifact: mac-x64 }
+          - { runner: macos-15, artifact: mac-arm64 }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +56,8 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -62,7 +65,7 @@ jobs:
 
   mac-universal:
     needs: mac
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -82,10 +85,11 @@ jobs:
           chmod +x stage/longo_doggo
       - name: Install butler
         run: |
-          curl -L -o butler.zip https://broth.itch.zone/butler/darwin-arm64/LATEST/archive/default
+          curl --fail --location --retry 3 -o butler.zip https://broth.itch.zone/butler/darwin-arm64/LATEST/archive/default
           unzip -o butler.zip -d butler-bin
           echo "$PWD/butler-bin" >> "$GITHUB_PATH"
-          butler --version
+          chmod +x butler-bin/butler
+          ./butler-bin/butler --version
       - name: Push to itch.io
         run: butler push stage romeuski/longo-doggo:mac
         env:
