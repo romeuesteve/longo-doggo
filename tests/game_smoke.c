@@ -472,7 +472,7 @@ static void test_buttons_door_win_retry(void)
     {
         int count = 0;
         const ViewItem *items = view_items(VIEW_WORLD, &count);
-        float clock = view_button_clock();
+        float clock = view_sprite_clock(LONGO_SPR_BUTTON);
         int animated = 0;
         for (int i = 0; i < count; i++) {
             if (items[i].kind != VIEW_ITEM_SPRITE ||

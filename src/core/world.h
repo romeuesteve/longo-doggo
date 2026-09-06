@@ -3,9 +3,9 @@
  *
  * Pure C, no rendering dependency, integer cell state.  Every gameplay
  * position is a 16px grid cell; movement snaps instantly and the
- * presentation layer (src/pres.c) eases visual positions toward the
- * snapped cells.  All rules are ports of the recovered GML behaviours,
- * translated from bbox probes to cell lookups.
+ * presentation layer (core/view.c + render.c) eases visual positions
+ * toward the snapped cells.  All rules are ports of the recovered GML
+ * behaviours, translated from bbox probes to cell lookups.
  *
  * One sim_tick() is one 60 Hz frame, in the original event order:
  * dog step -> pickups -> buttons/doors/goal -> title/dialogue ->
@@ -28,11 +28,9 @@
 
 
 typedef struct SimInput {
-    /* held directions (arrow keys and WASD merged by the front-end);
-     * reserved for consumers that genuinely need held state */
-    unsigned char held_right, held_left, held_up, held_down;
     /* pressed edges, one tick wide.  Movement is one of these, like the
-     * original oDog Step: keyboard_check_pressed, not held keys. */
+     * original oDog Step: keyboard_check_pressed, not held keys.  Held
+     * state is not represented; consumers read edges only. */
     unsigned char pressed_right, pressed_left, pressed_up, pressed_down;
     unsigned char pressed_space, pressed_enter, pressed_e, pressed_r;
     unsigned char pressed_any;
@@ -74,19 +72,16 @@ void world_draw(void);
 
 bool cell_in_bounds(int cx, int cy);
 uint16_t cell_neighbour(uint16_t cell, int dir);
-float world_random(float max);
-float world_random_range(float lo, float hi);
 
 /* Cell helpers shared by the rules. */
 int sim_cell_x(uint16_t cell);
 int sim_cell_y(uint16_t cell);
 uint16_t sim_cell_of(int cx, int cy);
 
-/* Entity-at-cell lookups (used by the rules and the presentation). */
-
-/* Random in [0, max) / [lo, hi) from the sim's xorshift (cosmetic scatter). */
-float sim_random(SimWorld *w, float max);
-float sim_random_range(SimWorld *w, float lo, float hi);
+/* Random in [0, max) / [lo, hi) from the sim's xorshift (the bark chance;
+ * cosmetic view effects keep their own Rng streams, see core/rng.h). */
+float world_random(float max);
+float world_random_range(float lo, float hi);
 
 
 /* Room order indices into longo_rooms[] (GeneralInfo.RoomOrder). */

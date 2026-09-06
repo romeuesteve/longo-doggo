@@ -3,6 +3,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "../core/gml_math.h"
+#include "../core/rng.h"
 #include "../core/view.h"
 #include "dog.h"
 
@@ -18,26 +20,13 @@ typedef struct Butterfly {
 } Butterfly;
 
 static Butterfly flies[BUTTERFLY_MAX];
-static unsigned rng = 0xbee9u;
+static Rng bf_rng = { 0xbee9u };
 
-static unsigned bf_rng_next(void)
-{
-    unsigned int x = rng;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    rng = x ? x : 0x9e3779b9u;
-    return x;
-}
-
-static float bf_random(float max)
-{
-    return (float)(bf_rng_next() & 0xFFFFFF) / (float)0x1000000 * max;
-}
+static float bf_random(float max) { return rng_float(&bf_rng, max); }
 
 static float bf_random_range(float lo, float hi)
 {
-    return lo + bf_random(hi - lo);
+    return rng_range(&bf_rng, lo, hi);
 }
 
 static float f_clamp(float v, float lo, float hi)
@@ -45,23 +34,6 @@ static float f_clamp(float v, float lo, float hi)
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
-}
-
-static float len_dir_x(float len, float dir)
-{
-    return cosf(dir * (3.14159265f / 180.0f)) * len;
-}
-
-static float len_dir_y(float len, float dir)
-{
-    return -sinf(dir * (3.14159265f / 180.0f)) * len;
-}
-
-static float point_direction(float x1, float y1, float x2, float y2)
-{
-    float dir = atan2f(-(y2 - y1), x2 - x1) * (180.0f / 3.14159265f);
-    if (dir < 0.0f) dir += 360.0f;
-    return dir;
 }
 
 void butterfly_reset(void)
@@ -127,15 +99,15 @@ void butterfly_draw(int shadow)
 {
     view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
     ViewColor tint = shadow ? view_rgb(0, 0, 0) : view_rgb(255, 255, 255);
-    int frame = (int)view_apple_clock() % 8; /* the fly flaps with the
-                                              * apple clock, as upstream */
+    /* the fly flaps with the apple clock, as upstream */
+    int frame = (int)view_sprite_clock(LONGO_SPR_APPLE) % 8;
     for (int i = 0; i < BUTTERFLY_MAX; i++) {
         if (!flies[i].alive) continue;
         if (shadow)
-            view_sprite(0, i, LONGO_SPR_FLY, frame, flies[i].x,
+            view_sprite(0, LONGO_SPR_FLY, frame, flies[i].x,
                         flies[i].y + 16.0f, 1.0f, 0.6f, 0.0f, tint, 1.0f);
         else
-            view_sprite(-500, i, LONGO_SPR_FLY, frame, flies[i].x, flies[i].y,
-                        1.0f, 1.0f, 0.0f, tint, 1.0f);
+            view_sprite(VIEW_DEPTH_BARK, LONGO_SPR_FLY, frame, flies[i].x,
+                        flies[i].y, 1.0f, 1.0f, 0.0f, tint, 1.0f);
     }
 }

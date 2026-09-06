@@ -15,10 +15,10 @@ void title_place(void)
     events_sound(SND_PLACEHOLDER, 1); /* the looping music track */
 }
 
-void title_tick(void)
+void title_tick(const SimInput *input)
 {
     if (!present) return;
-    if (world_ptr()->input.pressed_any) transition_request_next();
+    if (input->pressed_any) transition_request_next();
 }
 
 bool title_present(void) { return present; }
@@ -28,35 +28,33 @@ bool title_present(void) { return present; }
 /* View: waving title logo (world) + its shadow                        */
 /* ------------------------------------------------------------------ */
 
-static float pos_x, pos_y; /* oTitle create: 304/4 - 20, 208/4 - 20 */
-
 void title_draw(int shadow)
 {
     if (!present) return;
     view_layer(shadow ? VIEW_SHADOW : VIEW_WORLD);
     ViewColor tint = shadow ? view_rgb(0, 0, 0) : view_rgb(255, 255, 255);
     float alpha = shadow ? 0.5f : 1.0f;
+    /* oTitle create: x = 304/4 - 20, y = 208/4 - 20 */
     float x = 304.0f / 4.0f - 20.0f;
     float y = 208.0f / 4.0f - 20.0f;
     float wave1 = longo_wave(0, 8, 2, 0, view_time_ms());
     float wave2 = longo_wave(0, 8, 2, 0.1f, view_time_ms());
-    (void)pos_x;
-    (void)pos_y;
+    int depth = shadow ? 0 : VIEW_DEPTH_TITLE;
 
     if (shadow) {
-        view_sprite_part(0, 0, LONGO_SPR_TITLE, 0, 0, 0, 191, 64, x,
+        view_sprite_part(depth, LONGO_SPR_TITLE, 0, 0, 0, 191, 64, x,
                          y + wave1 + 85.0f, 1.0f, 0.5f, tint, alpha);
-        view_sprite_part(0, 1, LONGO_SPR_TITLE, 0, 0, 69, 191, 149, x,
+        view_sprite_part(depth, LONGO_SPR_TITLE, 0, 0, 69, 191, 149, x,
                          y + 48.0f + wave2 + 52.0f, 1.0f, 0.5f, tint, alpha);
         return;
     }
-    view_sprite_part(-600, 0, LONGO_SPR_TITLE, 0, 0, 0, 191, 64, x,
+    view_sprite_part(depth, LONGO_SPR_TITLE, 0, 0, 0, 191, 64, x,
                      y + wave1, 1.0f, 1.0f, tint, alpha);
-    view_sprite_part(-600, 1, LONGO_SPR_TITLE, 0, 0, 69, 191, 149, x,
+    view_sprite_part(depth, LONGO_SPR_TITLE, 0, 0, 69, 191, 149, x,
                      y + 48.0f + wave2 + 2.0f, 1.0f, 1.0f, tint, alpha);
     /* "Press Any Key to Start", gradient shadowed */
-    view_text(-600, 2, 0, "Press Any Key to Start", 151.0f,
+    view_text(depth, 0, "Press Any Key to Start", 151.0f,
               188.0f + wave1 * 0.5f + 1.0f, 1.0f, view_rgb(51, 17, 0));
-    view_text(-600, 3, 0, "Press Any Key to Start", 150.0f,
+    view_text(depth, 0, "Press Any Key to Start", 150.0f,
               188.0f + wave1 * 0.5f, 1.0f, view_rgb(255, 235, 204));
 }

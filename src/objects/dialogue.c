@@ -116,16 +116,18 @@ void dialogue_start(int room_index)
 }
 
 /* oTutorial Draw event port; the box scale easing is view-side. */
-void dialogue_tick(void)
+static bool advance_pressed; /* this tick's advance edge, for the view */
+
+void dialogue_tick(const SimInput *input)
 {
+    advance_pressed = (input->pressed_space || input->pressed_enter ||
+                       input->pressed_e) && !transition_closing();
     if (!dlg.active) return;
-    const SimInput *input = &world_ptr()->input;
     if (dlg.release_ticks >= 0) {
         if (++dlg.release_ticks >= DIALOGUE_SHRINK_TICKS) dlg.active = false;
         return;
     }
-    if ((input->pressed_space || input->pressed_enter || input->pressed_e) &&
-        !transition_closing()) {
+    if (advance_pressed) {
         if (dlg.index < dlg.last) {
             dlg.index++;
         } else {
@@ -156,7 +158,6 @@ static float v_scale_x = 1.0f, v_scale_y = 1.0f;
 void dialogue_view_tick(void)
 {
     if (!dlg.active) return;
-    const SimInput *input = &world_ptr()->input;
     float target_x, target_y;
     if (dlg.release_ticks >= 0) {
         target_x = target_y = 0.6f;
@@ -164,10 +165,7 @@ void dialogue_view_tick(void)
         target_x = dlg.target_x;
         target_y = dlg.target_y;
     }
-    bool advance =
-        (input->pressed_space || input->pressed_enter || input->pressed_e) &&
-        !transition_closing();
-    if (advance && dlg.release_ticks < 0)
+    if (advance_pressed && dlg.release_ticks < 0)
         v_scale_x = v_scale_y = 0.5f; /* press bounce */
     v_scale_x += (target_x - v_scale_x) * 0.15f;
     v_scale_y += (target_y - v_scale_y) * 0.15f;
@@ -185,10 +183,11 @@ void dialogue_draw(void)
     float wave = longo_wave(0, 2, 2, 0, view_time_ms());
 
     /* the bubble is a 9-slice panel covering the same rect the original's
-     * scaled 24x24 sprite occupied (scale eases for the pop-in/bounce) */
+     * scaled 24x24 sprite occupied (scale eases for the pop-in/bounce);
+     * depth 1 keeps the panel behind the depth-0 text */
     float w = 24.0f * v_scale_x;
     float h = 24.0f * v_scale_y;
-    view_nine_patch(1, 0, LONGO_SPR_DIALOGUEBOX, 0, box->x - w * 0.5f,
+    view_nine_patch(1, LONGO_SPR_DIALOGUEBOX, 0, box->x - w * 0.5f,
                     box->y + wave - h * 0.5f, w, h, view_rgb(255, 255, 255),
                     1.0f);
     /* draw_text_ext_transformed(..., 12, 30 * xscale, image_yscale * 0.3,
@@ -196,8 +195,8 @@ void dialogue_draw(void)
      * 30 * xscale measured at scale 1, i.e. 30 * target_x * scale here */
     float scale = v_scale_y * 0.3f;
     float width = 30.0f * dlg.target_x * scale;
-    view_text_wrapped(0, 1, 1, box->text, box->x + 0.5f, box->y + wave + 0.5f,
+    view_text_wrapped(0, 1, box->text, box->x + 0.5f, box->y + wave + 0.5f,
                       12.0f, width, scale, view_rgb(255, 196, 101));
-    view_text_wrapped(0, 2, 1, box->text, box->x, box->y + wave, 12.0f, width,
+    view_text_wrapped(0, 1, box->text, box->x, box->y + wave, 12.0f, width,
                       scale, view_rgb(84, 64, 32));
 }

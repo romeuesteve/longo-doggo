@@ -40,13 +40,6 @@ int main(void)
         SimInput input;
         memset(&input, 0, sizeof(input));
 
-        /* held directions: arrows and WASD merged (the sim applies the
-         * original's horizontal-first diagonal priority) */
-        input.held_right = IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D);
-        input.held_left = IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A);
-        input.held_down = IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S);
-        input.held_up = IsKeyDown(KEY_UP) || IsKeyDown(KEY_W);
-
         /* movement is keyboard_check_pressed in the original oDog Step:
          * one step per physical press, no OS key repeat */
         input.pressed_right = IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D);

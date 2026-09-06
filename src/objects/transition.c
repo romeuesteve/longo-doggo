@@ -41,7 +41,7 @@ void transition_request_next(void)
 void transition_count_win(void) { tr.room_num++; }
 
 /* oTransition Draw event port, verbatim. */
-void transition_tick(void)
+void transition_tick(SimWorld *w)
 {
     if (!tr.active) return;
     if (tr.open) {
@@ -51,10 +51,10 @@ void transition_tick(void)
             tr.x = 304.0f;
             tr.close = true;
             if (tr.retry) {
-                sim_room_restart(world_ptr());
+                sim_room_restart(w);
                 tr.retry = false;
             } else if (tr.next_lvl) {
-                sim_room_goto_next(world_ptr());
+                sim_room_goto_next(w);
                 tr.next_lvl = false;
             }
             tr.open = false;
@@ -92,33 +92,33 @@ void transition_draw(void)
 
     if (tr.open) {
         for (int i = 0; i < 4; i++) {
-            view_sprite(2, i * 2, LONGO_SPR_TRANSITION, 0, tr.x,
+            view_sprite(2, LONGO_SPR_TRANSITION, 0, tr.x,
                         (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f, color2,
                         1.0f);
-            view_sprite(2, i * 2 + 1, LONGO_SPR_TRANSITION, 0, tr.x,
+            view_sprite(2, LONGO_SPR_TRANSITION, 0, tr.x,
                         (float)(i * 64), 1.0f, 1.0f, 0.0f, color, 1.0f);
         }
         if (tr.x + 32.0f > 0.0f)
-            view_rect(1, 0, tr.x + 32.0f, 0.0f, 304.0f - (tr.x + 32.0f),
+            view_rect(1, tr.x + 32.0f, 0.0f, 304.0f - (tr.x + 32.0f),
                       208.0f, color);
     } else if (tr.close) {
         for (int i = 0; i < 4; i++) {
-            view_sprite(2, i * 2, LONGO_SPR_TRANSITION, 1, tr.x,
+            view_sprite(2, LONGO_SPR_TRANSITION, 1, tr.x,
                         (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f, color2,
                         1.0f);
-            view_sprite(2, i * 2 + 1, LONGO_SPR_TRANSITION, 1, tr.x,
+            view_sprite(2, LONGO_SPR_TRANSITION, 1, tr.x,
                         (float)(i * 64), 1.0f, 1.0f, 0.0f, color, 1.0f);
         }
         if (tr.x + 32.0f > 0.0f)
-            view_rect(1, 0, 0.0f, 0.0f, tr.x + 32.0f, 208.0f, color);
+            view_rect(1, 0.0f, 0.0f, tr.x + 32.0f, 208.0f, color);
     }
 
     if (tr.room_num <= 7 && (tr.open || tr.close)) {
         char text[128];
         snprintf(text, sizeof(text), "LEVEL %d", tr.room_num);
-        view_text(0, 0, 0, text, 142.0f, tr.text_y + 2.0f, 1.0f,
+        view_text(0, 0, text, 142.0f, tr.text_y + 2.0f, 1.0f,
                   view_rgb(0, 128, 0));
-        view_text(0, 1, 0, text, 140.0f, tr.text_y, 1.0f,
+        view_text(0, 0, text, 140.0f, tr.text_y, 1.0f,
                   view_rgb(255, 255, 255));
     }
 }

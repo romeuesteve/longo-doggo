@@ -9,6 +9,8 @@
 
 #include <stdbool.h>
 
+#include "../core/world.h"
+
 typedef struct TransitionState {
     bool active;
     bool open, close, retry, next_lvl;
@@ -17,7 +19,7 @@ typedef struct TransitionState {
 } TransitionState;
 
 void transition_reset(void);
-void transition_tick(void); /* may reload the room mid-tick */
+void transition_tick(SimWorld *w); /* may reload the room mid-tick */
 
 const TransitionState *transition_state(void);
 bool transition_closing(void); /* gates dialogue advance and retry */

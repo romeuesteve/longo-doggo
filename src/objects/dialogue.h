@@ -7,6 +7,8 @@
 
 #include <stdbool.h>
 
+#include "../core/world.h"
+
 #define DIALOGUE_MAX_BOXES 8
 
 /* Shrink ticks after the final press (lerp 0.15 below 0.65 scale). */
@@ -21,7 +23,7 @@ void dialogue_reset(void);
 /* Texts per room (tutorial, level6, level4, credits); clears the dog's
  * play gate through the dog script when the room gates play. */
 void dialogue_start(int room_index);
-void dialogue_tick(void); /* reads input through the world */
+void dialogue_tick(const SimInput *input); /* advance on space/enter/E */
 
 bool dialogue_active(void);
 int dialogue_index(void);

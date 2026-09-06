@@ -11,15 +11,18 @@ render.c      raylib replay of view items; owns all API conversion
 core/view.c   draw-item kernel + shared animation clocks
 core/world.c  room load (instances -> solid map + entities), tick order
 core/solid.c  the one collision vocabulary: cell -> occupant kind
+core/rng.h    one xorshift per consumer (sim, fx, butterfly, house)
+core/gml_math.h  the GML math helpers (lengthdir/point_direction/lerp)
 src/objects/  one script per GameMaker object; owns state, rules, view
 level_data.*  rooms dumped from data.win (source of truth, never edited)
 ```
 
 Data flows one way per frame: the front-end translates OS events into a
 `SimInput` (pressed edges, one tick wide), `sim_tick()` runs the rules,
-object scripts push draw items tagged with depth + order, and the
-backend replays them. Rules never touch raylib; the renderer never
-decides gameplay.
+object scripts push draw items tagged with depth — the recovered
+GameMaker instance depths; push order breaks ties — and the backend
+replays them. Rules never touch raylib; the renderer never decides
+gameplay.
 
 ## Recovery conventions
 
@@ -41,9 +44,9 @@ when a hole stops being solid).
 **Input is press edges.** The original dog step reads
 `keyboard_check_pressed` and gates repeats with `key_cooldown`
 (`alarm[1] = 2`). Movement is therefore one cell per physical press;
-"held" state is reserved for consumers that genuinely need it. Feeding
-held keys with a repeat timer instead changed the game's feel and
-let the dog slide continuously.
+`SimInput` carries no held state at all. Feeding held keys with a repeat
+timer instead changed the game's feel and let the dog slide
+continuously.
 
 **View state is born at placement.** A placed entity snaps its eased
 view position to its cell (`view_snap()` in each script). The original

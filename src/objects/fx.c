@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include "../core/events.h"
+#include "../core/gml_math.h"
+#include "../core/rng.h"
 
 #define FX_MAX_SMOKE 160
 #define FX_MAX_POPUPS 16
@@ -49,38 +51,13 @@ static int bark_cnt;
 static Sink sinks[FX_MAX_SINKS];
 static int sink_cnt;
 
-static unsigned rng = 0x1234u;
+static Rng fx_rng = { 0x1234u };
 
-static unsigned fx_rng_next(void)
-{
-    unsigned int x = rng;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    rng = x ? x : 0x9e3779b9u;
-    return x;
-}
-
-static float fx_random(float max)
-{
-    return (float)(fx_rng_next() & 0xFFFFFF) / (float)0x1000000 * max;
-}
+static float fx_random(float max) { return rng_float(&fx_rng, max); }
 
 static float fx_random_range(float lo, float hi)
 {
-    return lo + fx_random(hi - lo);
-}
-
-static float f_lerp(float a, float b, float t) { return a + (b - a) * t; }
-
-static float len_dir_x(float len, float dir)
-{
-    return cosf(dir * (3.14159265f / 180.0f)) * len;
-}
-
-static float len_dir_y(float len, float dir)
-{
-    return -sinf(dir * (3.14159265f / 180.0f)) * len;
+    return rng_range(&fx_rng, lo, hi);
 }
 
 void fx_reset(void)
@@ -206,31 +183,31 @@ void fx_draw(void)
     static const float offsets[5][2] = {
         { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }, { 0, 0 }
     };
-    int order = 0;
     for (int i = 0; i < smoke_cnt; i++) {
         Smoke *s = &smoke[i];
         if (!s->alive) continue;
         for (int k = 0; k < 5; k++)
-            view_sprite(-1000, order++, LONGO_SPR_SMOKE, 0,
+            view_sprite(VIEW_DEPTH_SMOKE, LONGO_SPR_SMOKE, 0,
                         s->x + offsets[k][0], s->y + offsets[k][1], s->scale,
                         s->scale, s->angle, k == 4 ? cream : gold, 1.0f);
     }
     for (int i = 0; i < sink_cnt; i++) {
         Sink *s = &sinks[i];
         if (!s->alive) continue;
-        view_sprite(-100, order++, LONGO_SPR_BOX, 0, s->x, s->y, 1.0f, 1.0f,
-                    0.0f, view_rgb(255, 255, 255), 1.0f);
+        view_sprite(VIEW_DEPTH_BOX_BASE, LONGO_SPR_BOX, 0, s->x, s->y, 1.0f,
+                    1.0f, 0.0f, view_rgb(255, 255, 255), 1.0f);
     }
     for (int i = 0; i < bark_cnt; i++) {
         Bark *b = &barks[i];
         if (!b->alive) continue;
-        view_sprite(-500, order++, LONGO_SPR_BARK, (int)b->frame, b->x, b->y,
-                    1.0f, 1.0f, b->angle, view_rgb(255, 255, 255), 1.0f);
+        view_sprite(VIEW_DEPTH_BARK, LONGO_SPR_BARK, (int)b->frame, b->x,
+                    b->y, 1.0f, 1.0f, b->angle, view_rgb(255, 255, 255),
+                    1.0f);
     }
     for (int i = 0; i < popup_cnt; i++) {
         Popup *o = &popups[i];
         if (!o->alive) continue;
-        view_sprite(-200000, order++, LONGO_SPR_ONE, o->variant, o->x, o->y,
+        view_sprite(VIEW_DEPTH_ONE, LONGO_SPR_ONE, o->variant, o->x, o->y,
                     1.0f, 1.0f, 0.0f, view_rgb(255, 255, 255), o->alpha);
     }
 }

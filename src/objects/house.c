@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "../core/events.h"
+#include "../core/rng.h"
 #include "../core/view.h"
 #include "../core/world.h"
 
@@ -23,6 +24,10 @@ static House house;
 /* view state: house pulse (oGoalUp count/count2 squash) */
 static int v_count = 200, v_count2;
 static float v_scale_x = 1.0f, v_scale_y = 1.0f;
+
+/* cosmetic puff scatter; a private stream so the view never drains the
+ * simulation's rng (see core/rng.h) */
+static Rng house_rng = { 0x13579bdfu };
 
 void house_reset(void)
 {
@@ -103,9 +108,9 @@ void house_view_tick(void)
         if (v_count2 > 0) {
             if (v_count2 > 160)
                 events_fx(FX_SMOKE_BURST,
-                          px + world_random_range(-4.0f, 4.0f),
-                          (py - 8.0f) + world_random_range(-4.0f, 4.0f), 0, 0,
-                          0, 1, 0);
+                          px + rng_range(&house_rng, -4.0f, 4.0f),
+                          (py - 8.0f) + rng_range(&house_rng, -4.0f, 4.0f), 0,
+                          0, 0, 1, 0);
             v_count2 -= 4;
             v_scale_x = 1.0f + wave_pulse(v_count2);
             v_scale_y = 1.0f - wave_pulse(v_count2);
@@ -114,9 +119,9 @@ void house_view_tick(void)
         if (v_count > 0) {
             if (v_count > 160)
                 events_fx(FX_SMOKE_BURST,
-                          px + world_random_range(-4.0f, 4.0f),
-                          (py - 8.0f) + world_random_range(-4.0f, 4.0f), 0, 0,
-                          0, 1, 0);
+                          px + rng_range(&house_rng, -4.0f, 4.0f),
+                          (py - 8.0f) + rng_range(&house_rng, -4.0f, 4.0f), 0,
+                          0, 0, 1, 0);
             v_count -= 4;
             v_scale_x = 1.0f + wave_pulse(v_count);
             v_scale_y = 1.0f - wave_pulse(v_count);
@@ -137,19 +142,19 @@ void house_draw(int shadow)
     float gy = (float)(sim_cell_y(house.goal_cell) * SIM_CELL + 32);
 
     if (shadow) {
-        view_sprite(0, 0, LONGO_SPR_HOUSE, 0, gx, gy + 4.0f, 1.0f, 0.5f, 0.0f,
+        view_sprite(0, LONGO_SPR_HOUSE, 0, gx, gy + 4.0f, 1.0f, 0.5f, 0.0f,
                     tint, 1.0f);
         return;
     }
     int frame = house.remain <= 0 ? 1 : 0;
     /* oGoal draws itself: the full 64x64 sprHouse, origin (32,64),
      * unscaled (its own draw event) */
-    view_sprite(-180, 0, LONGO_SPR_HOUSE, frame, gx, gy, 1.0f, 1.0f, 0.0f,
-                tint, 1.0f);
+    view_sprite(VIEW_DEPTH_GOAL, LONGO_SPR_HOUSE, frame, gx, gy, 1.0f, 1.0f,
+                0.0f, tint, 1.0f);
     /* oGoalUp then redraws the top 44 rows with the squash pulse; without
      * this the base sprite's bottom rows are missing (depth -220) */
-    view_sprite_part(-220, 0, LONGO_SPR_HOUSE, frame, 0, 0, 64, 44,
-                     gx - (32.0f * v_scale_x), gy - (64.0f * v_scale_y),
+    view_sprite_part(VIEW_DEPTH_GOAL_OVERLAY, LONGO_SPR_HOUSE, frame, 0, 0, 64,
+                     44, gx - (32.0f * v_scale_x), gy - (64.0f * v_scale_y),
                      v_scale_x, v_scale_y, tint, 1.0f);
     if (house.remain > 0) {
         char text[16];
@@ -157,8 +162,9 @@ void house_draw(int shadow)
                                 view_time_ms());
         float y = (gy + 1.0f) - 32.0f + wave;
         snprintf(text, sizeof(text), "%d", house.remain);
-        view_text(-220, 1, 2, text, gx + 1.0f, y - 6.0f, 1.0f,
+        view_text(VIEW_DEPTH_GOAL_OVERLAY, 2, text, gx + 1.0f, y - 6.0f, 1.0f,
                   view_rgb(128, 0, 0));
-        view_text(-220, 2, 2, text, gx, y - 6.0f, 1.0f, view_rgb(255, 0, 0));
+        view_text(VIEW_DEPTH_GOAL_OVERLAY, 2, text, gx, y - 6.0f, 1.0f,
+                  view_rgb(255, 0, 0));
     }
 }

@@ -24,13 +24,10 @@
 #include "../objects/flower.h"
 #include "../objects/fx.h"
 #include "solid.h"
+#include "rng.h"
 
 #include <math.h>
 #include <string.h>
-
-#ifndef M_PI
-#define M_PI 3.14159265358979f
-#endif
 
 /* ------------------------------------------------------------------ */
 /* Small helpers                                                       */
@@ -64,13 +61,10 @@ uint16_t cell_neighbour(uint16_t cell, int dir)
 
 float world_random(float max)
 {
-    SimWorld *w = &game_world;
-    unsigned int x = w->rng;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    w->rng = x ? x : 0x9e3779b9u;
-    return (float)(x & 0xFFFFFF) / (float)0x1000000 * max;
+    Rng rng = { game_world.rng };
+    float value = rng_float(&rng, max);
+    game_world.rng = rng.state;
+    return value;
 }
 
 float world_random_range(float lo, float hi)
@@ -141,7 +135,6 @@ static void load_room(SimWorld *w, int room_index)
     float dog_x = 0, dog_y = 0;
     int have_dog = 0;
     int title = 0;
-    float tutorial_x = 0;
     int have_tutorial = 0;
 
     w->room_index = room_index;
@@ -254,7 +247,6 @@ static void load_room(SimWorld *w, int room_index)
             title_place();
             break;
         case LONGO_OBJ_TUTORIAL:
-            tutorial_x = p->x;
             have_tutorial = 1;
             break;
         case LONGO_OBJ_FLOWER:
@@ -275,7 +267,6 @@ static void load_room(SimWorld *w, int room_index)
 
     if (have_dog) dog_place(dog_x, dog_y);
     if (title) dog_title_arrangement();
-    (void)tutorial_x;
     if (have_tutorial) dialogue_start(room_index);
     /* oGoalUp create defaults remain to 1; the first house_tick recomputes
      * it to dog.length - 2.  Initialising here prevents the win from
@@ -306,15 +297,15 @@ void sim_tick(SimWorld *w, const SimInput *input)
     house_tick(dog_alive() ? dog_length() : -1);
 
     /* 3. title -> transition request */
-    if (w->room_loaded_tick != w->tick) title_tick();
+    if (w->room_loaded_tick != w->tick) title_tick(&w->input);
 
     /* 4. transition FSM (may reload the room mid-tick, like the original
      * persistent instance) */
-    transition_tick();
+    transition_tick(w);
 
     /* 5. dialogue (the original skipped instances born this tick, so skip
      * if the room just changed) */
-    if (w->room_loaded_tick != w->tick) dialogue_tick();
+    if (w->room_loaded_tick != w->tick) dialogue_tick(&w->input);
 }
 
 /* ------------------------------------------------------------------ */
@@ -350,12 +341,12 @@ void world_draw(void)
     /* application surface: background, tile layers, shadow composite and
      * the entities in depth order */
     view_layer(VIEW_WORLD);
-    view_tile_layers(700, 0, 0); /* sprTile background */
+    view_tile_layers(VIEW_DEPTH_TILES, 0); /* sprTile background */
     const LongoRoomTileMap *tiles = room_tiles_for(game_world.room);
     if (tiles != NULL)
-        view_tile_layers(tiles->tiles_3.depth, 1, 1);
+        view_tile_layers(tiles->tiles_3.depth, 1);
     if (game_world.shadows_present && dog_alive())
-        view_shadow_composite(210, 0);
+        view_shadow_composite(210);
     dog_draw(0);
     box_draw(0);
     door_draw(0);

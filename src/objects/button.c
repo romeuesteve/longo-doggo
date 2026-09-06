@@ -86,15 +86,15 @@ void button_draw(int shadow)
         float y = (float)(sim_cell_y(buttons[i].zone[0]) * 16);
         /* the idle button cycles sprButton (9 frames @ 8 fps); pressed it
          * holds the single-frame sprButtonPressed */
-        int frame = (int)view_button_clock() % 9;
+        int frame = (int)view_sprite_clock(LONGO_SPR_BUTTON) % 9;
         if (shadow) {
-            view_sprite(0, i,
+            view_sprite(0,
                         buttons[i].pressed ? LONGO_SPR_BUTTONPRESSED
                                            : LONGO_SPR_BUTTON,
                         buttons[i].pressed ? 0 : frame, x, y + 4.0f, 1.0f,
                         1.0f, 0.0f, tint, 1.0f);
         } else {
-            view_sprite(200, i,
+            view_sprite(VIEW_DEPTH_GROUND,
                         buttons[i].pressed ? LONGO_SPR_BUTTONPRESSED
                                            : LONGO_SPR_BUTTON,
                         buttons[i].pressed ? 0 : frame, x, y, 1.0f, 1.0f,

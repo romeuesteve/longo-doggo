@@ -50,8 +50,6 @@ typedef struct LongoSpriteInfo {
 const LongoSpriteInfo *longo_sprite_info(int sprite);
 const char *longo_sprite_name(int sprite);
 
-int longo_sprite_width(int sprite);
-int longo_sprite_height(int sprite);
 int longo_sprite_origin_x(int sprite);
 int longo_sprite_origin_y(int sprite);
 int longo_sprite_frames(int sprite);

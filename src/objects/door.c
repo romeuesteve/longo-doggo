@@ -61,7 +61,6 @@ void door_tick(bool all_buttons_pressed)
     }
 }
 
-int door_count(void) { return door_cnt; }
 bool door_alive(int index)
 {
     return index >= 0 && index < door_cnt && doors[index].alive;
@@ -69,14 +68,6 @@ bool door_alive(int index)
 bool door_open(int index)
 {
     return index >= 0 && index < door_cnt && doors[index].open;
-}
-uint16_t door_cell(int index) { return doors[index].cell; }
-
-int door_index_at(uint16_t cell)
-{
-    for (int i = 0; i < door_cnt; i++)
-        if (doors[i].alive && doors[i].cell == cell) return i;
-    return -1;
 }
 
 
@@ -123,12 +114,12 @@ void door_draw(int shadow)
             /* oShadows draws the door's shadow at the instance's live
              * x/y (it shifts during the open squash), flipped below:
              * draw_sprite_ext(sprDoor, 0, x, y + 22, 1, -0.4, ...) */
-            view_sprite(0, i, LONGO_SPR_DOOR, 0, v_doors[i].x,
+            view_sprite(0, LONGO_SPR_DOOR, 0, v_doors[i].x,
                         v_doors[i].y + 22.0f, 1.0f, -0.4f, 0.0f, tint, 1.0f);
         } else {
-            view_sprite(100, i, LONGO_SPR_DOOR, 0, v_doors[i].x, v_doors[i].y,
-                        v_doors[i].scale_x, v_doors[i].scale_y, 0.0f, tint,
-                        1.0f);
+            view_sprite(VIEW_DEPTH_ITEM, LONGO_SPR_DOOR, 0, v_doors[i].x,
+                        v_doors[i].y, v_doors[i].scale_x, v_doors[i].scale_y,
+                        0.0f, tint, 1.0f);
         }
     }
 }

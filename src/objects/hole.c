@@ -44,8 +44,6 @@ void hole_fill(int index)
 
 int hole_count(void) { return hole_cnt; }
 
-uint16_t hole_cell(int index) { return holes[index].cell; }
-
 int hole_index_at(uint16_t cell)
 {
     for (int i = 0; i < hole_cnt; i++)
@@ -59,7 +57,7 @@ void hole_draw(void)
     view_layer(VIEW_WORLD);
     for (int i = 0; i < hole_cnt; i++) {
         if (!holes[i].alive) continue;
-        view_sprite(200, i, LONGO_SPR_HOLE, holes[i].full ? 1 : 0,
+        view_sprite(VIEW_DEPTH_GROUND, LONGO_SPR_HOLE, holes[i].full ? 1 : 0,
                     (float)(sim_cell_x(holes[i].cell) * SIM_CELL),
                     (float)(sim_cell_y(holes[i].cell) * SIM_CELL), 1.0f,
                     1.0f, 0.0f, view_rgb(255, 255, 255), 1.0f);

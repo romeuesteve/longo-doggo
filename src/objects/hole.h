@@ -16,7 +16,6 @@ bool hole_is_full(int index);
 void hole_fill(int index);
 
 int hole_count(void);
-uint16_t hole_cell(int index);
 int hole_index_at(uint16_t cell); /* -1 when none */
 
 /* Draw: oHole's draw event (sprHole frame 0 empty, 1 filled, depth 200).

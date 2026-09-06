@@ -6,9 +6,11 @@
 
 #include <stdbool.h>
 
+#include "../core/world.h"
+
 void title_reset(void);
 void title_place(void); /* starts the music, marks the room as a title */
-void title_tick(void);  /* any key -> next-level wipe */
+void title_tick(const SimInput *input); /* any key -> next-level wipe */
 
 bool title_present(void);
 

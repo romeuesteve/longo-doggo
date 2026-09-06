@@ -92,18 +92,6 @@ const char *longo_sprite_name(int sprite)
     return NAMES[sprite];
 }
 
-int longo_sprite_width(int sprite)
-{
-    const LongoSpriteInfo *info = longo_sprite_info(sprite);
-    return info ? info->width : 0;
-}
-
-int longo_sprite_height(int sprite)
-{
-    const LongoSpriteInfo *info = longo_sprite_info(sprite);
-    return info ? info->height : 0;
-}
-
 int longo_sprite_origin_x(int sprite)
 {
     const LongoSpriteInfo *info = longo_sprite_info(sprite);

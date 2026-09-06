@@ -128,12 +128,14 @@ void box_draw(int shadow)
     for (int i = 0; i < box_cnt; i++) {
         if (!boxes[i].alive) continue;
         if (shadow) {
-            view_sprite(0, i, LONGO_SPR_BOX, 0, v_box_x[i], v_box_y[i] + 5.0f,
+            /* the shadow layer is composited flat; every item is depth 0 */
+            view_sprite(0, LONGO_SPR_BOX, 0, v_box_x[i], v_box_y[i] + 5.0f,
                         1.0f, 1.0f, 0.0f, tint, 1.0f);
         } else {
             /* dynamic depth like the original: -100 - y / 6 */
-            view_sprite((int)(-100 - v_box_y[i] / 6), i, LONGO_SPR_BOX, 0,
-                        v_box_x[i], v_box_y[i], 1.0f, 1.0f, 0.0f, tint, 1.0f);
+            view_sprite((int)(VIEW_DEPTH_BOX_BASE - v_box_y[i] / 6),
+                        LONGO_SPR_BOX, 0, v_box_x[i], v_box_y[i], 1.0f, 1.0f,
+                        0.0f, tint, 1.0f);
         }
     }
 }

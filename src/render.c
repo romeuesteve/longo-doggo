@@ -702,6 +702,20 @@ static void draw_tile_layer(LongoRender *render, const LongoTileLayer *layer)
     }
 }
 
+/* Full-surface rectangles used by every surface-to-surface blit; the
+ * negative height flips the render target's bottom-up orientation. */
+static Rectangle rect_flip(void)
+{
+    return (Rectangle){ 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
+                        -(float)LONGO_LOGICAL_HEIGHT };
+}
+
+static Rectangle rect_full(void)
+{
+    return (Rectangle){ 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
+                        (float)LONGO_LOGICAL_HEIGHT };
+}
+
 /* --------------------------------------------------------------- */
 /* View replay                                                        */
 /* --------------------------------------------------------------- */
@@ -716,8 +730,8 @@ static void replay_item(LongoRender *render, const SimWorld *world,
                            to_ray_color(it->color), it->alpha);
         break;
     case VIEW_ITEM_SPRITE_PART:
-        draw_sprite_part_ext(render, it->sprite, it->frame, (int)it->radius,
-                             (int)it->rotation, (int)it->w, (int)it->h,
+        draw_sprite_part_ext(render, it->sprite, it->frame, (int)it->src_x,
+                             (int)it->src_y, (int)it->w, (int)it->h,
                              it->x, it->y, it->xscale, it->yscale,
                              to_ray_color(it->color), it->alpha);
         break;
@@ -759,13 +773,9 @@ static void replay_item(LongoRender *render, const SimWorld *world,
         break;
     case VIEW_ITEM_SHADOW_COMPOSITE:
         if (dog_alive()) {
-            Rectangle src = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                              -(float)LONGO_LOGICAL_HEIGHT };
             Color tint = { 255, 255, 255, (unsigned char)(255 * 0.2f) };
-            DrawTexturePro(render->shadow_surface.texture, src,
-                           (Rectangle){ 0, 0, (float)LONGO_LOGICAL_WIDTH,
-                                        (float)LONGO_LOGICAL_HEIGHT },
-                           (Vector2){ 0, 0 }, 0.0f, tint);
+            DrawTexturePro(render->shadow_surface.texture, rect_flip(),
+                           rect_full(), (Vector2){ 0, 0 }, 0.0f, tint);
         }
         break;
     case VIEW_ITEM_TILE_LAYERS: {
@@ -801,10 +811,6 @@ static void bloom_bright_pass(LongoRender *render)
 {
     float threshold = 0.8f;
     float range = 0.3f;
-    Rectangle flip = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                       -(float)LONGO_LOGICAL_HEIGHT };
-    Rectangle full = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                       (float)LONGO_LOGICAL_HEIGHT };
 
     BeginTextureMode(render->bloom_ping);
     ClearBackground(BLANK);
@@ -813,8 +819,8 @@ static void bloom_bright_pass(LongoRender *render)
                    &threshold, SHADER_UNIFORM_FLOAT);
     SetShaderValue(render->bloom_lum_shader, render->lum_range_loc, &range,
                    SHADER_UNIFORM_FLOAT);
-    DrawTexturePro(render->app_surface.texture, flip, full, (Vector2){ 0, 0 },
-                   0.0f, WHITE);
+    DrawTexturePro(render->app_surface.texture, rect_flip(), rect_full(),
+                   (Vector2){ 0, 0 }, 0.0f, WHITE);
     EndShaderMode();
     EndTextureMode();
 }
@@ -827,10 +833,6 @@ static void bloom_blur_pass(LongoRender *render, RenderTexture2D *src,
     float texel[2] = { 1.0f / (float)LONGO_LOGICAL_WIDTH,
                        1.0f / (float)LONGO_LOGICAL_HEIGHT };
     float vec[2] = { vec_x, vec_y };
-    Rectangle flip = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                       -(float)LONGO_LOGICAL_HEIGHT };
-    Rectangle full = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                       (float)LONGO_LOGICAL_HEIGHT };
 
     BeginTextureMode(*dst);
     ClearBackground(BLANK);
@@ -843,7 +845,8 @@ static void bloom_blur_pass(LongoRender *render, RenderTexture2D *src,
                    SHADER_UNIFORM_VEC2);
     SetShaderValue(render->blur_shader, render->blur_texel_loc, texel,
                    SHADER_UNIFORM_VEC2);
-    DrawTexturePro(src->texture, flip, full, (Vector2){ 0, 0 }, 0.0f, WHITE);
+    DrawTexturePro(src->texture, rect_flip(), rect_full(), (Vector2){ 0, 0 },
+                   0.0f, WHITE);
     EndShaderMode();
     EndTextureMode();
 }
@@ -851,10 +854,6 @@ static void bloom_blur_pass(LongoRender *render, RenderTexture2D *src,
 static void bloom_composite(LongoRender *render)
 {
     float intensity = 0.6f;
-    Rectangle flip = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                       -(float)LONGO_LOGICAL_HEIGHT };
-    Rectangle full = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                       (float)LONGO_LOGICAL_HEIGHT };
 
     BeginShaderMode(render->bloom_blend_shader);
     SetShaderValue(render->bloom_blend_shader, render->blend_intensity_loc,
@@ -862,18 +861,13 @@ static void bloom_composite(LongoRender *render)
     SetShaderValueTexture(render->bloom_blend_shader,
                           render->blend_bloom_tex_loc,
                           render->bloom_ping.texture);
-    DrawTexturePro(render->app_surface.texture, flip, full, (Vector2){ 0, 0 },
-                   0.0f, WHITE);
+    DrawTexturePro(render->app_surface.texture, rect_flip(), rect_full(),
+                   (Vector2){ 0, 0 }, 0.0f, WHITE);
     EndShaderMode();
 }
 
 void longo_render_frame(LongoRender *render, const SimWorld *world)
 {
-    Rectangle flip = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                       -(float)LONGO_LOGICAL_HEIGHT };
-    Rectangle full = { 0.0f, 0.0f, (float)LONGO_LOGICAL_WIDTH,
-                       (float)LONGO_LOGICAL_HEIGHT };
-
     view_sort();
 
     /* shadow surface from the shadow layer */
@@ -907,8 +901,8 @@ void longo_render_frame(LongoRender *render, const SimWorld *world)
     ClearBackground(BLACK);
     Rectangle screen = { 0.0f, 0.0f, (float)GetScreenWidth(),
                          (float)GetScreenHeight() };
-    DrawTexturePro(render->gui_surface.texture, flip, screen, (Vector2){ 0, 0 },
-                   0.0f, WHITE);
+    DrawTexturePro(render->gui_surface.texture, rect_flip(), screen,
+                   (Vector2){ 0, 0 }, 0.0f, WHITE);
     /* text rides on top at window resolution: crisp at any window size
      * instead of resampled with the pixel surface */
     draw_text_items_window_scale(render);

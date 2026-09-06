@@ -29,8 +29,8 @@ void flower_draw(int shadow)
     if (shadow) return;
     view_layer(VIEW_WORLD);
     ViewColor white = view_rgb(255, 255, 255);
-    int frame = (int)view_flower_clock() % 4;
+    int frame = (int)view_sprite_clock(LONGO_SPR_FLOWER) % 4;
     for (int i = 0; i < flower_cnt; i++)
-        view_sprite(200, i, LONGO_SPR_FLOWER, frame, flowers[i].x,
+        view_sprite(VIEW_DEPTH_GROUND, LONGO_SPR_FLOWER, frame, flowers[i].x,
                     flowers[i].y, 1.0f, 1.0f, 0.0f, white, 1.0f);
 }
