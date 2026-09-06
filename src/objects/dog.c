@@ -166,7 +166,10 @@ void dog_set_length(int length)
         if (dog.length > 0) dog.pflag[dog.length - 1] = DOG_PART_LEGS;
     }
     while (dog.length < length) {
-        dog.chain[dog.length] = dog.chain[dog.length - 1];
+        /* growing from an empty chain anchors the first part on the
+         * head's cell; chain[-1] would read out of bounds */
+        dog.chain[dog.length] =
+            dog.length == 0 ? head_cell() : dog.chain[dog.length - 1];
         dog.pflag[dog.length] = DOG_PART_LEGS;
         view_part_snap(dog.length, dog.chain[dog.length]);
         dog.length++;

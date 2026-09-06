@@ -28,7 +28,32 @@ if(LONGO_DOGGO_BUILD_TESTS AND LONGO_DOGGO_PLATFORM STREQUAL "native")
     if(UNIX AND NOT APPLE)
         target_link_libraries(longo_game_smoke PRIVATE m)
     endif()
-    add_test(NAME longo_game_smoke COMMAND longo_game_smoke)
+
+    # One test per gameplay rule, so a failure names the rule.  Keep this
+    # list in step with the registry at the bottom of tests/game_smoke.c
+    # (the binary also prints it via `longo_game_smoke --list`).
+    set(LONGO_SMOKE_SCENARIOS
+        title_flow_room_order
+        tutorial_dialogue_gates_play
+        movement_and_chain
+        room_load_rules
+        apple_pear_length
+        walls_and_push_rules
+        buttons_door_win_retry
+        retry_reloads_room
+        fx_pools_reuse_dead_slots
+        undo
+        door_open_window_solidity)
+    add_test(NAME smoke_all COMMAND longo_game_smoke)
+    foreach(scenario IN LISTS LONGO_SMOKE_SCENARIOS)
+        add_test(NAME smoke_${scenario} COMMAND longo_game_smoke ${scenario})
+    endforeach()
+
+    # The checks must stay active in Release: this scenario fails by
+    # design, so a build where -DNDEBUG strips the asserts would let it
+    # "pass" and ctest flags exactly that regression.
+    add_test(NAME smoke_fail_probe COMMAND longo_game_smoke fail_probe)
+    set_tests_properties(smoke_fail_probe PROPERTIES WILL_FAIL TRUE)
 endif()
 
 if(NOT LONGO_DOGGO_PLATFORM STREQUAL "native" AND NOT LONGO_DOGGO_PLATFORM STREQUAL "web")

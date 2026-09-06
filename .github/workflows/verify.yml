@@ -1,0 +1,51 @@
+name: verify
+
+# Build and test verification for every push and pull request.  These
+# jobs never publish: the itch.io channels ship from desktop-deploy.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Debug and Release on one runner proves the suite in both;
+          # Release matters because -DNDEBUG must not strip the checks
+          # (smoke_fail_probe guards that).
+          - { os: ubuntu-latest, config: Debug, deps: true }
+          - { os: ubuntu-latest, config: Release, deps: true }
+          - { os: windows-latest, config: Release, deps: false }
+          - { os: macos-latest, config: Release, deps: false }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        if: ${{ matrix.deps }}
+        # X11 and GL headers for raylib's desktop backend, ALSA for audio.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev \
+            libxinerama-dev libxi-dev libgl1-mesa-dev libasound2-dev
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.64
+      - name: Configure
+        run: emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build-web --parallel

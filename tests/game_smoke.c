@@ -5,14 +5,22 @@
  * chain follow, apple/pear length changes, box push/hole fill,
  * simultaneous button/door logic, the win transition order, and retry.
  */
+
+/* Checks must survive optimized builds: Release's -DNDEBUG would
+ * compile every assert away, leaving CI with crash detection only.
+ * Re-including <assert.h> with NDEBUG undefined keeps the checks live
+ * in every configuration. */
+#undef NDEBUG
+#include <assert.h>
+
 #include "core/world.h"
 
 #include "core/events.h"
 #include "core/solid.h"
 #include "core/view.h"
 
-#include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "objects/box.h"
@@ -61,6 +69,28 @@ static void press_dir(int dir)
     tick_idle(1);
 }
 
+/* Fresh game from the title, straight into the tutorial room with its
+ * dialogue released: the state most gameplay scenarios need.  Scenarios
+ * must be self-contained so ctest can also run each one in its own
+ * process. */
+static void start_playable_in_tutorial(void)
+{
+    SimInput input;
+    memset(&input, 0, sizeof(input));
+    sim_init(42u);
+    input.pressed_any = 1;
+    tick_with(&input);
+    tick_idle(200); /* ride the wipe into the tutorial room */
+    for (int i = 0; i < 7; i++) {
+        input.pressed_space = 1;
+        tick_with(&input);
+        input.pressed_space = 0;
+        tick_idle(1);
+    }
+    tick_idle(DIALOGUE_SHRINK_TICKS + 10);
+    assert(dog_play());
+}
+
 /* ---------------------------------------------------------------- */
 
 static void test_title_flow_and_room_order(void)
@@ -90,6 +120,11 @@ static void test_tutorial_dialogue_gates_play(void)
     SimInput input;
     memset(&input, 0, sizeof(input));
 
+    sim_init(42u);
+    input.pressed_any = 1;
+    tick_with(&input);
+    tick_idle(200); /* ride the wipe into the tutorial room */
+
     assert(!dog_play()); /* the tutorial paused the dog */
     for (int i = 0; i < 6; i++) {
         input.pressed_space = 1;
@@ -110,6 +145,7 @@ static void test_movement_and_chain(void)
 {
     SimInput input;
     memset(&input, 0, sizeof(input));
+    start_playable_in_tutorial();
     int start_x = dog_cx();
     int start_y = dog_cy();
     uint16_t head0 = sim_cell_of(start_x, start_y);
@@ -305,6 +341,8 @@ static void test_apple_and_pear_length(void)
     SimInput input;
     memset(&input, 0, sizeof(input));
 
+    start_playable_in_tutorial();
+
     /* move the head beside the tutorial apple and step into it */
     int apple = -1;
     for (int i = 0; i < apple_count(); i++) {
@@ -451,6 +489,7 @@ static void test_walls_and_push_rules(void)
 
 static void test_buttons_door_win_retry(void)
 {
+    start_playable_in_tutorial();
     /* rm_level1 has four buttons; doors open once all are pressed at once */
     sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
     tick_idle(2);
@@ -547,6 +586,9 @@ static void test_buttons_door_win_retry(void)
 
 static void test_retry_reloads_room(void)
 {
+    start_playable_in_tutorial();
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
     int room_before = world.room_index;
     SimInput input;
     memset(&input, 0, sizeof(input));
@@ -556,7 +598,8 @@ static void test_retry_reloads_room(void)
     assert(world.room_index == room_before);
     assert(dog_alive());
     assert(dog_length() == 5);
-    assert(dog_play()); /* the level3 room has no dialogue */
+    assert(dog_play()); /* the room has no dialogue, so retry leaves
+                           the dog playable */
 }
 
 /* one undo press, spaced like a movement press */
@@ -573,12 +616,15 @@ static void test_fx_pools_reuse_dead_slots(void)
 {
     fx_reset();
 
-    /* more popups and sinks than the pools' old hard caps (16 and 8):
-     * spawning must reuse dead slots instead of dropping new fx */
-    for (int i = 0; i < 17; i++)
-        events_fx(FX_ONE, 0.0f, 0.0f, 0, 0, 0, 0, 0);
-    for (int i = 0; i < 9; i++)
-        events_fx(FX_BOX_SINK, 0.0f, 0.0f, 640.0f, 480.0f, 0, 0, 0);
+    /* Fill the popup and sink pools to their caps, let every slot die,
+     * then fill them again.  The pools used to be append-only: death
+     * never shrank the counts, so the whole second wave was silently
+     * dropped after a few minutes of play. */
+    for (int i = 0; i < 16; i++)
+        events_fx(FX_ONE, 0.0f, (float)i, 0, 0, 0, 0, 0);
+    for (int i = 0; i < 8; i++)
+        events_fx(FX_BOX_SINK, 0.0f, (float)(16 + i), 640.0f, 480.0f, 0, 0,
+                  0);
     fx_tick();
     view_begin_frame();
     fx_draw();
@@ -591,8 +637,48 @@ static void test_fx_pools_reuse_dead_slots(void)
             if (items[i].sprite == LONGO_SPR_ONE) ones++;
             if (items[i].sprite == LONGO_SPR_BOX) boxes++;
         }
-        assert(ones == 17);
-        assert(boxes == 9);
+        assert(ones == 16);
+        assert(boxes == 8);
+    }
+
+    /* popups fade in 45 ticks, sinks arrive in ~25: nothing survives
+     * 60 */
+    for (int t = 0; t < 60; t++) fx_tick();
+    view_begin_frame();
+    fx_draw();
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        int ones = 0, boxes = 0;
+        for (int i = 0; i < count; i++) {
+            if (items[i].kind != VIEW_ITEM_SPRITE) continue;
+            if (items[i].sprite == LONGO_SPR_ONE) ones++;
+            if (items[i].sprite == LONGO_SPR_BOX) boxes++;
+        }
+        assert(ones == 0);
+        assert(boxes == 0);
+    }
+
+    /* second wave: every spawn must land in a recycled slot */
+    for (int i = 0; i < 16; i++)
+        events_fx(FX_ONE, 0.0f, (float)i, 0, 0, 0, 0, 0);
+    for (int i = 0; i < 8; i++)
+        events_fx(FX_BOX_SINK, 0.0f, (float)(16 + i), 640.0f, 480.0f, 0, 0,
+                  0);
+    fx_tick();
+    view_begin_frame();
+    fx_draw();
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        int ones = 0, boxes = 0;
+        for (int i = 0; i < count; i++) {
+            if (items[i].kind != VIEW_ITEM_SPRITE) continue;
+            if (items[i].sprite == LONGO_SPR_ONE) ones++;
+            if (items[i].sprite == LONGO_SPR_BOX) boxes++;
+        }
+        assert(ones == 16);
+        assert(boxes == 8);
     }
 }
 
@@ -705,18 +791,121 @@ static void test_undo(void)
     assert(dog_cx() == start_x && dog_cy() == start_y);
 }
 
-int main(void)
+/* A door stays solid through its whole 14-tick open animation and only
+ * frees its cell when it poofs. */
+static void test_door_open_window_solidity(void)
 {
-    test_title_flow_and_room_order();
-    test_tutorial_dialogue_gates_play();
-    test_movement_and_chain();
-    test_room_load_rules();
-    test_apple_and_pear_length();
-    test_walls_and_push_rules();
-    test_buttons_door_win_retry();
-    test_retry_reloads_room();
-    test_fx_pools_reuse_dead_slots();
-    test_undo();
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+
+    /* open the door by parking a box on every button */
+    for (int i = 0; i < button_count(); i++)
+        box_set_cell(i, button_zone_cell(i, 0));
+    tick_idle(1);
+    assert(door_open(0));
+    assert(door_alive(0));
+
+    uint16_t door_cell = 0;
+    int found_door = 0;
+    for (int cy = 0; cy < world.cells_h; cy++)
+        for (int cx = 0; cx < world.cells_w; cx++)
+            if (solid_kind_at(sim_cell_of(cx, cy)) == SOLID_DOOR) {
+                door_cell = sim_cell_of(cx, cy);
+                found_door = 1;
+            }
+    assert(found_door);
+
+    /* ticks 1..12 of the open window: the door is mid-animation but
+     * still blocks its cell (the timer decrements on the opening tick
+     * itself, so the poof lands on the 13th) */
+    for (int t = 1; t <= 12; t++) {
+        tick_idle(1);
+        assert(door_alive(0));
+        assert(solid_kind_at(door_cell) == SOLID_DOOR);
+    }
+    tick_idle(1);
+    assert(!door_alive(0));
+    assert(solid_kind_at(door_cell) == SOLID_EMPTY);
+}
+
+/* Registered in CTest with WILL_FAIL: it must exit non-zero in every
+ * build configuration.  The side effect inside the assert proves check
+ * expressions really evaluate; if -DNDEBUG ever strips them again, the
+ * probe returns 0 and ctest's WILL_FAIL flags the hollow suite.  It
+ * exits cleanly instead of aborting so WILL_FAIL sees a plain failure. */
+static void scenario_fail_probe(void)
+{
+    volatile int evaluated = 0;
+    assert(++evaluated);
+    if (!evaluated) return; /* checks compiled out: probe "passes" */
+    fprintf(stderr, "fail_probe: checks are active, failing as designed\n");
+    exit(1);
+}
+
+typedef struct Scenario {
+    const char *name;
+    void (*fn)(void);
+} Scenario;
+
+static const Scenario scenarios[] = {
+    { "title_flow_room_order", test_title_flow_and_room_order },
+    { "tutorial_dialogue_gates_play", test_tutorial_dialogue_gates_play },
+    { "movement_and_chain", test_movement_and_chain },
+    { "room_load_rules", test_room_load_rules },
+    { "apple_pear_length", test_apple_and_pear_length },
+    { "walls_and_push_rules", test_walls_and_push_rules },
+    { "buttons_door_win_retry", test_buttons_door_win_retry },
+    { "retry_reloads_room", test_retry_reloads_room },
+    { "fx_pools_reuse_dead_slots", test_fx_pools_reuse_dead_slots },
+    { "undo", test_undo },
+    { "door_open_window_solidity", test_door_open_window_solidity },
+};
+
+static void run_scenario(const Scenario *s)
+{
+    printf("[scenario] %s\n", s->name);
+    fflush(stdout);
+    s->fn();
+}
+
+static int run_all(void)
+{
+    for (size_t i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++)
+        run_scenario(&scenarios[i]);
     printf("longo_game_smoke: all tests passed\n");
     return 0;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc == 2 && strcmp(argv[1], "--list") == 0) {
+        for (size_t i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++)
+            printf("%s\n", scenarios[i].name);
+        printf("fail_probe\n");
+        return 0;
+    }
+    if (argc >= 2) {
+        for (int a = 1; a < argc; a++) {
+            if (strcmp(argv[a], "fail_probe") == 0) {
+                run_scenario(&(Scenario){ "fail_probe", scenario_fail_probe });
+                continue;
+            }
+            int found = 0;
+            for (size_t i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]);
+                 i++) {
+                if (strcmp(argv[a], scenarios[i].name) == 0) {
+                    run_scenario(&scenarios[i]);
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                fprintf(stderr, "unknown scenario: %s\n", argv[a]);
+                return 2;
+            }
+        }
+        printf("longo_game_smoke: selected scenarios passed\n");
+        return 0;
+    }
+    return run_all();
 }
