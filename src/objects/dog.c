@@ -53,6 +53,7 @@ static int sign(int v) { return (v > 0) - (v < 0); }
 /* Placement must initialise the eased view position (a fresh instance
  * never eases in from the origin). */
 static void view_snap(void);
+static void view_part_snap(int index, uint16_t cell);
 
 /* ------------------------------------------------------------------ */
 /* Placement                                                           */
@@ -135,13 +136,15 @@ uint16_t dog_detached_cell(void) { return (uint16_t)dog.detached_cell; }
 
 void dog_teleport(int cx, int cy)
 {
-    /* clear old cells, place the head on the new one; the chain follows
-     * below like a fresh spawn (test hook) */
+    /* clear old cells, re-place the head with the chain trailing below
+     * like a fresh spawn (test hook) */
     solid_clear(head_cell());
     for (int i = 0; i < dog.length; i++) solid_clear(dog.chain[i]);
     dog.cx = cx;
     dog.cy = cy;
     dog.key_cooldown = 0;
+    for (int i = 0; i < dog.length; i++)
+        dog.chain[i] = sim_cell_of(cx, cy + 1 + i);
     place_on_solid_map();
     view_snap();
 }
@@ -171,6 +174,7 @@ void dog_set_length(int length)
     while (dog.length < length) {
         dog.chain[dog.length] = dog.chain[dog.length - 1];
         dog.pflag[dog.length] = DOG_PART_LEGS;
+        view_part_snap(dog.length, dog.chain[dog.length]);
         dog.length++;
     }
     place_on_solid_map();
@@ -182,12 +186,17 @@ void dog_set_length(int length)
 
 static void shift_chain(uint16_t old_head)
 {
-    /* The cell the tail vacates is where a grown segment reappears. */
-    solid_clear(dog.chain[dog.length - 1]);
-    dog.detached_cell = dog.chain[dog.length - 1];
+    /* The cell the tail vacates is where a grown segment reappears.  A
+     * box may have just been pushed onto it (the tail is not solid), so
+     * only clear it when it still holds a body part. */
+    uint16_t tail = dog.chain[dog.length - 1];
+    if (solid_kind_at(tail) == SOLID_BODY) solid_clear(tail);
+    dog.detached_cell = tail;
     for (int i = dog.length - 1; i > 0; i--) dog.chain[i] = dog.chain[i - 1];
     dog.chain[0] = old_head;
-    solid_place(old_head, SOLID_BODY, 0);
+    /* re-stamp every part so the map's indices stay in step with the
+     * chain (the tail exception probes dog_part_is_solid by index) */
+    place_on_solid_map();
 }
 
 static void grow_chain(uint16_t at_cell)
@@ -197,7 +206,11 @@ static void grow_chain(uint16_t at_cell)
     dog.pflag[dog.length - 1] = DOG_PART_BUTT;
     dog.chain[dog.length] = at_cell;
     dog.pflag[dog.length] = DOG_PART_LEGS;
+    /* the original creates the new part at ins[length-2].xprev/yprev —
+     * the cell that just emptied — and its xx/yy start there */
+    view_part_snap(dog.length, at_cell);
     dog.length++;
+    place_on_solid_map();
 }
 
 static void shrink_chain(void)
@@ -205,6 +218,7 @@ static void shrink_chain(void)
     solid_clear(dog.chain[dog.length - 1]);
     dog.length--;
     dog.pflag[dog.length - 1] = DOG_PART_LEGS;
+    place_on_solid_map();
 }
 
 static void emit_bark(void)
@@ -344,16 +358,21 @@ static int v_wiggle[DOG_MAX_CHAIN];
 
 static float f_lerp(float a, float b, float t) { return a + (b - a) * t; }
 
+static void view_part_snap(int index, uint16_t cell)
+{
+    if (index < 0 || index >= DOG_MAX_CHAIN) return;
+    v_part_x[index] = (float)(sim_cell_x(cell) * SIM_CELL + 8);
+    v_part_y[index] = (float)(sim_cell_y(cell) * SIM_CELL + 8);
+    v_part_cell[index] = cell;
+    v_wiggle[index] = 0;
+}
+
 static void view_snap(void)
 {
     v_dog_x = (float)(dog.cx * SIM_CELL + 8);
     v_dog_y = (float)(dog.cy * SIM_CELL + 8);
-    for (int i = 0; i < dog.length; i++) {
-        v_part_x[i] = (float)(sim_cell_x(dog.chain[i]) * SIM_CELL + 8);
-        v_part_y[i] = (float)(sim_cell_y(dog.chain[i]) * SIM_CELL + 8);
-        v_part_cell[i] = dog.chain[i];
-        v_wiggle[i] = 0;
-    }
+    for (int i = 0; i < dog.length; i++)
+        view_part_snap(i, dog.chain[i]);
 }
 
 static float point_direction(float x1, float y1, float x2, float y2)

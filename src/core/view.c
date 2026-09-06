@@ -114,6 +114,25 @@ void view_sprite_part(int depth, int order, LongoSprite sprite, int frame,
     it->alpha = alpha;
 }
 
+void view_nine_patch(int depth, int order, LongoSprite sprite, int frame,
+                     float x, float y, float w, float h, ViewColor tint,
+                     float alpha)
+{
+    ViewItem *it = push();
+    if (!it) return;
+    it->kind = VIEW_ITEM_NINE_PATCH;
+    it->depth = depth;
+    it->order = order;
+    it->sprite = sprite;
+    it->frame = frame;
+    it->x = x;
+    it->y = y;
+    it->w = w;
+    it->h = h;
+    it->color = tint;
+    it->alpha = alpha;
+}
+
 void view_line(int depth, int order, float x1, float y1, float x2, float y2,
                float width, ViewColor c1, ViewColor c2)
 {

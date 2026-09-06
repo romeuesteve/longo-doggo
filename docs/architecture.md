@@ -73,6 +73,47 @@ Instance positions in `level_data.h` are exact multiples of the cell
 size, so cell-packing round-trips losslessly when the stored cell and
 the offset (+8/+32 here) are derived from the spawn math, not guessed.
 
+**The solid map must stay in lockstep with the chain.** Occupancy is
+keyed by cell and the tail exception probes `dog_part_is_solid()` by
+part index, so every chain mutation (step, grow, shrink) re-stamps the
+whole chain with fresh indices. Clearing only the moved cells leaves
+ghost solids (a cell a part vacated stays solid forever) or stale
+indices (the tail resolves to the wrong part's flags).
+
+**Presentation substitutions are deliberate and documented.** These
+departures from the recovered presentation exist because the literal
+port reads badly at modern window sizes:
+- *Text*: the recovered fonts are an 8px "DejaVu Sans" bitmap atlas
+  that turns to mush inside the 304x208 surface, so UI text replays in
+  the present pass at window resolution with Renogare (repo
+  `assets/fonts`, converted to TrueType outlines and rasterized at the
+  drawn pixel size with point filtering — no blur). The in-world house
+  counter keeps the recovered `FontDigits` bitmap font on purpose: it
+  should stay pixelated with the game. Alignment still follows the
+  recovered draw state (font 0 bold = left-aligned, fonts 1/2 =
+  centered).
+- *Dialogue panel*: the original scales the whole 24x24
+  `sprDialogueBox`; the reconstruction renders a 9-slice instead
+  (corners native, sides and centre stretched) over the same rect.
+- *Ground layer*: the `Tiles_1`/`GroundTileSet` layer is removed fully
+  (data, draw call, texture) — it only stamped sparse dirt decals over
+  the `sprTile` background.
+- *Unpressed buttons* animate through all 9 `sprButton` frames on the
+  shared 8 fps clock; the pressed state holds the single-frame
+  `sprButtonPressed`.
+
+**Known deviations from the recovered collision data.** Two places
+where the port intentionally diverges from what the dumped geometry
+produced, because the literal behaviour read as a bug in play:
+- *Buttons*: the recovered box mask is the fully opaque 16x20 sprite,
+  so a box one cell below a button pressed it through a 4px lid
+  overlap. Boxes now press only from the button's own cell.
+- *House*: the recovered `sprHouse` has a full-image automatic mask
+  (64x64 from the roof peak). The solid footprint follows the house
+  walls only (48x32, centred on the anchor from the stored cell down —
+  the sprite's walls span x 9..54) so the roof and eaves overhang stay
+  walkable background.
+
 **Simulation constants come from the GML, not from taste.** Cooldowns
 (`alarm[1] = 2`), lerp factors (0.2 dog, 0.25 box/door), pulse counts
 (200 stepping by 4), bark cadence (alarm 25, 20% chance) are all
@@ -82,8 +123,10 @@ recovered values; keep them named next to the rule they serve.
 
 `tests/game_smoke.c` runs the sim headlessly through the real room
 data: title flow, dialogue gating, press cadence + cooldown, chain
-follow, scaled-wall stamping, pear sprites, house anchors, view snap,
-box push/hole fill, button/door counting, the win transition and retry.
-View-level asserts inspect the pushed `ViewItem`s directly — no
-renderer needed. `tests/playthrough.c` replays a timed input script
-and prints states for manual comparison against the original build.
+follow, the tail exception (a length-3 dog looping on four cells),
+scaled-wall stamping, pear sprites, hole rendering + the filled frame,
+the 9-slice bubble, house anchors, view snap, box push/hole fill,
+button/door counting, the win transition and retry. View-level asserts
+inspect the pushed `ViewItem`s directly — no renderer needed.
+`tests/playthrough.c` replays a timed input script and prints states
+for manual comparison against the original build.

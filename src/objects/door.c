@@ -120,10 +120,11 @@ void door_draw(int shadow)
     for (int i = 0; i < door_cnt; i++) {
         if (!doors[i].alive) continue;
         if (shadow) {
-            view_sprite(0, i, LONGO_SPR_DOOR, 0,
-                        (float)(sim_cell_x(doors[i].cell) * SIM_CELL),
-                        (float)(sim_cell_y(doors[i].cell) * SIM_CELL + 22.0f),
-                        1.0f, -0.4f, 0.0f, tint, 1.0f);
+            /* oShadows draws the door's shadow at the instance's live
+             * x/y (it shifts during the open squash), flipped below:
+             * draw_sprite_ext(sprDoor, 0, x, y + 22, 1, -0.4, ...) */
+            view_sprite(0, i, LONGO_SPR_DOOR, 0, v_doors[i].x,
+                        v_doors[i].y + 22.0f, 1.0f, -0.4f, 0.0f, tint, 1.0f);
         } else {
             view_sprite(100, i, LONGO_SPR_DOOR, 0, v_doors[i].x, v_doors[i].y,
                         v_doors[i].scale_x, v_doors[i].scale_y, 0.0f, tint,

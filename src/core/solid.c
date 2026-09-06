@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "../objects/dog.h"
 #include "../objects/hole.h"
 
 typedef struct SolidCell {
@@ -41,8 +42,11 @@ SolidProbe solid_probe(uint16_t cell)
         return hole_is_full(cells[cell].index) ? SOLID_PROBE_FREE
                                                : SOLID_PROBE_SOLID;
     case SOLID_BODY:
-        /* interim: the tail exception lands with the dog extraction */
-        return SOLID_PROBE_SOLID;
+        /* per-kind semantics stay with the owner: the tail part has
+         * block = 0 in the original, so the dog (and a pushed box) may
+         * take its cell; it vacates in the same tick */
+        return dog_part_is_solid(cells[cell].index) ? SOLID_PROBE_SOLID
+                                                    : SOLID_PROBE_FREE;
     case SOLID_WALL:
     case SOLID_GOAL:
     case SOLID_DOOR:
@@ -57,10 +61,11 @@ bool solid_blocks_box(uint16_t cell)
     case SOLID_EMPTY:
         return false;
     case SOLID_HOLE:
-        return false; /* a box lands in an open hole and fills it */
+        /* an open hole swallows a box; a filled one is normal ground */
+        return !hole_is_full(cells[cell].index);
     case SOLID_BODY:
-        /* interim: refined when the dog script owns the chain flags */
-        return true;
+        /* same tail exception as the movement probe */
+        return dog_part_is_solid(cells[cell].index);
     case SOLID_WALL:
     case SOLID_GOAL:
     case SOLID_DOOR:

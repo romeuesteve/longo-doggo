@@ -46,6 +46,19 @@ static int hole_at_cell(int cx, int cy)
     return hole_index_at(sim_cell_of(cx, cy));
 }
 
+/* one movement press, spaced past the key_cooldown (alarm[1] = 2) */
+static void press_dir(int dir)
+{
+    SimInput in;
+    memset(&in, 0, sizeof(in));
+    if (dir == 0) in.pressed_down = 1;
+    else if (dir == 90) in.pressed_right = 1;
+    else if (dir == 180) in.pressed_up = 1;
+    else in.pressed_left = 1;
+    tick_with(&in);
+    tick_idle(1);
+}
+
 /* ---------------------------------------------------------------- */
 
 static void test_title_flow_and_room_order(void)
@@ -133,6 +146,20 @@ static void test_room_load_rules(void)
      * covers: the tutorial border is stamped as 19x1 / 1x12.5 blocks */
     sim_room_goto(world_ptr(), SIM_ROOM_TUTORIAL);
     tick_idle(2);
+
+    /* the dialogue bubble is a 9-slice panel, not a scaled sprite */
+    view_begin_frame();
+    dialogue_draw();
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_GUI, &count);
+        int patches = 0;
+        for (int i = 0; i < count; i++)
+            if (items[i].kind == VIEW_ITEM_NINE_PATCH &&
+                items[i].sprite == LONGO_SPR_DIALOGUEBOX)
+                patches++;
+        assert(patches == 1);
+    }
     for (int x = 0; x < world.cells_w; x++) {
         assert(solid_kind_at(sim_cell_of(x, 0)) == SOLID_WALL);      /* 19x1 */
         assert(solid_kind_at(sim_cell_of(x, 12)) == SOLID_WALL);     /* 19x1 */
@@ -168,6 +195,25 @@ static void test_room_load_rules(void)
     assert(dog_strain());
     assert(dog_cx() == 17 && dog_cy() == 5);
 
+    /* the tail part is not solid (block = 0 in the original): wrap a
+     * length-3 dog around a 4-cell loop; from the fourth step on, the
+     * head steps onto the cell the tail occupies every single move */
+    dog_set_length(3);
+    dog_teleport(4, 5);
+    {
+        /* loop (4,5) -> (5,5) -> (5,6) -> (4,6) -> (4,5) ... */
+        static const int loop[] = { 90, 0, 270, 180 };
+        static const int ex[][2] = { { 5, 5 }, { 5, 6 }, { 4, 6 },
+                                     { 4, 5 }, { 5, 5 }, { 5, 6 },
+                                     { 4, 6 }, { 4, 5 } };
+        for (int i = 0; i < 8; i++) {
+            press_dir(loop[i % 4]);
+            assert(dog_cx() == ex[i][0] && dog_cy() == ex[i][1]);
+            assert(!dog_strain());
+        }
+    }
+    dog_set_length(5);
+
     /* view state is born on the dog's cell, never eased in from (0,0) */
     assert(dog_visual_x() == (float)(dog_cx() * 16 + 8));
     assert(dog_visual_y() == (float)(dog_cy() * 16 + 8));
@@ -186,6 +232,19 @@ static void test_room_load_rules(void)
                 pears++;
         assert(pears > 0);
         assert(pears == skull_count());
+    }
+
+    /* the house counter keeps the recovered digits font (font_id 2) */
+    view_begin_frame();
+    house_draw(0);
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        int digits_items = 0;
+        for (int i = 0; i < count; i++)
+            if (items[i].kind == VIEW_ITEM_TEXT && items[i].font_id == 2)
+                digits_items++;
+        assert(digits_items == 2); /* shadow + main */
     }
 
     /* the house anchors on the oGoal instance (bottom-centre, sprHouse
@@ -326,6 +385,43 @@ static void test_walls_and_push_rules(void)
     assert(!box_alive(box));
     assert(dog_cx() == 12); /* the dog took the box's old cell */
 
+    /* a second box pushed onto the filled hole rides on top of it like
+     * normal ground instead of being swallowed again */
+    {
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        dog_teleport(11, 5);
+        assert(box_at_cell(12, 5) < 0);
+        assert(box_alive(1));
+        box_set_cell(1, sim_cell_of(12, 5));
+        input.pressed_right = 1;
+        tick_with(&input);
+        int rider = box_at_cell(13, 5);
+        assert(rider >= 0 && box_alive(rider));
+        assert(hole_is_full(hole)); /* still just filled, not re-filled */
+        assert(dog_cx() == 12);
+        box_set_cell(rider, sim_cell_of(0, 0));
+        tick_idle(1);
+    }
+
+    /* holes render via oHole's draw event; the filled one shows frame 1 */
+    view_begin_frame();
+    hole_draw();
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        int holes_seen = 0, filled = 0;
+        for (int i = 0; i < count; i++) {
+            if (items[i].kind != VIEW_ITEM_SPRITE ||
+                items[i].sprite != LONGO_SPR_HOLE)
+                continue;
+            holes_seen++;
+            if (items[i].frame == 1) filled++;
+        }
+        assert(holes_seen == hole_count());
+        assert(filled == 1);
+    }
+
     /* walls block: stepping into a static block strains in place */
     SimInput input;
     memset(&input, 0, sizeof(input));
@@ -357,6 +453,37 @@ static void test_buttons_door_win_retry(void)
     tick_idle(2);
     assert(!door_open(0));
 
+    /* a box on the cell below a button must not press it: the original's
+     * 4px lid overlap read as a false press and was dropped */
+    {
+        uint16_t own = button_zone_cell(0, 0);
+        uint16_t below = sim_cell_of(sim_cell_x(own), sim_cell_y(own) + 1);
+        assert(box_index_at(own) < 0);
+        box_set_cell(0, below);
+        tick_idle(1);
+        assert(!button_pressed(0));
+        box_set_cell(0, sim_cell_of(0, 0));
+        tick_idle(1);
+    }
+
+    /* unpressed buttons cycle sprButton's 9 frames on the shared clock */
+    view_begin_frame();
+    button_draw(0);
+    {
+        int count = 0;
+        const ViewItem *items = view_items(VIEW_WORLD, &count);
+        float clock = view_button_clock();
+        int animated = 0;
+        for (int i = 0; i < count; i++) {
+            if (items[i].kind != VIEW_ITEM_SPRITE ||
+                items[i].sprite != LONGO_SPR_BUTTON)
+                continue;
+            assert(items[i].frame == (int)clock % 9);
+            animated++;
+        }
+        assert(animated == button_count());
+    }
+
     /* park a distinct box on every button zone but the last one */
     for (int i = 0; i < button_count() - 1; i++) {
         uint16_t cell = button_zone_cell(i, 0);
@@ -377,9 +504,8 @@ static void test_buttons_door_win_retry(void)
     /* doors stay closed until every button is pressed simultaneously */
     assert(!door_open(0));
 
-    /* the last button: a box pressed through its lid zone opens the doors */
-    box_set_cell(button_count() - 1,
-                 button_box_zone_cell(button_count() - 1, 0));
+    /* the last button: a box on its cell opens the doors */
+    box_set_cell(button_count() - 1, button_zone_cell(button_count() - 1, 0));
     tick_idle(1);
     assert(door_open(0));
 

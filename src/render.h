@@ -13,6 +13,8 @@
 
 #define LONGO_BITMAP_FONT_GLYPHS 128
 
+/* The recovered FontDigits bitmap font: still used for the in-world house
+ * counter so it stays pixelated with the rest of the game. */
 typedef struct LongoBitmapGlyph {
     Rectangle source;
     int advance;
@@ -57,14 +59,10 @@ typedef struct LongoRender {
     Texture2D sprites[32];
     bool sprite_loaded[32];
 
-    Texture2D tileset1;       /* backgrounds/TileSet1.png (Tiles_3 layers) */
+    Texture2D tileset1; /* backgrounds/TileSet1.png (the Tiles_3 layer) */
     bool tileset1_loaded;
-    Texture2D ground_tileset; /* backgrounds/GroundTileSet.png (Tiles_1) */
-    bool ground_tileset_loaded;
 
-    LongoBitmapFont font_longo;       /* LongoFont */
-    LongoBitmapFont font_longo_bold;  /* LongoFontBold */
-    LongoBitmapFont font_digits;      /* FontDigits */
+    LongoBitmapFont font_digits; /* recovered FontDigits (house counter) */
 
     Sound sounds[7];
     bool sound_loaded[7];

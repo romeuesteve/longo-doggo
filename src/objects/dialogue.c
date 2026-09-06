@@ -177,8 +177,13 @@ void dialogue_draw(void)
     if (box->text == NULL) return;
     float wave = longo_wave(0, 2, 2, 0, view_time_ms());
 
-    view_sprite(1, 0, LONGO_SPR_DIALOGUEBOX, 0, box->x, box->y + wave,
-                v_scale_x, v_scale_y, 0.0f, view_rgb(255, 255, 255), 1.0f);
+    /* the bubble is a 9-slice panel covering the same rect the original's
+     * scaled 24x24 sprite occupied (scale eases for the pop-in/bounce) */
+    float w = 24.0f * v_scale_x;
+    float h = 24.0f * v_scale_y;
+    view_nine_patch(1, 0, LONGO_SPR_DIALOGUEBOX, 0, box->x - w * 0.5f,
+                    box->y + wave - h * 0.5f, w, h, view_rgb(255, 255, 255),
+                    1.0f);
     float scale = v_scale_y * 0.3f;
     float width = 30.0f * dlg.base_scale;
     view_text_wrapped(0, 1, 1, box->text, box->x + 0.5f, box->y + wave + 0.5f,

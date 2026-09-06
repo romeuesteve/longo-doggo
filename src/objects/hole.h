@@ -19,4 +19,8 @@ int hole_count(void);
 uint16_t hole_cell(int index);
 int hole_index_at(uint16_t cell); /* -1 when none */
 
+/* Draw: oHole's draw event (sprHole frame 0 empty, 1 filled, depth 200).
+ * A floor decal — it never contributes to the shadow pass. */
+void hole_draw(void);
+
 #endif /* LONGO_OBJECT_HOLE_H */

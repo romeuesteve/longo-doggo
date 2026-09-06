@@ -22,8 +22,7 @@ enum {
 };
 
 typedef enum LongoTileSet {
-    LONGO_TILESET_TILESET1 = 0,
-    LONGO_TILESET_GROUND = 1
+    LONGO_TILESET_TILESET1 = 0
 } LongoTileSet;
 
 typedef struct LongoTileLayer {
@@ -39,7 +38,6 @@ typedef struct LongoTileLayer {
 typedef struct LongoRoomTileMap {
     const char *room_name;
     LongoTileLayer tiles_3;
-    LongoTileLayer tiles_1;
     int background_depth;
     int shadows_depth;
     int flowers_depth;

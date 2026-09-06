@@ -1,7 +1,6 @@
 /*
- * Button object script: pressed by boxes (through the lid straddle cell)
- * or by any body/hole/door occupant of its cells; the doors listen for
- * "all pressed at once".
+ * Button object script: pressed by a box on its cell or by any
+ * body/hole/door occupant; the doors listen for "all pressed at once".
  */
 #ifndef LONGO_OBJECT_BUTTON_H
 #define LONGO_OBJECT_BUTTON_H
@@ -13,10 +12,9 @@
 #define BUTTON_ZONE_MAX 16
 
 void button_reset(void);
-/* The zones are computed by the world's placement pass from the original
- * bbox geometry: body zone (16x16 probe) and box zone (+ the 4px lid). */
-void button_place(const uint16_t *zone, int zone_count,
-                  const uint16_t *box_zone, int box_zone_count);
+/* The zone is computed by the world's placement pass: the cells whose
+ * 16px probe rect strictly overlaps the button's bbox. */
+void button_place(const uint16_t *zone, int zone_count);
 
 void button_tick(void);
 
@@ -25,7 +23,6 @@ bool button_alive(int index);
 bool button_pressed(int index);
 bool button_all_pressed(void);
 uint16_t button_zone_cell(int index, int cell_i);
-uint16_t button_box_zone_cell(int index, int cell_i);
 
 /* View. */
 void button_draw(int shadow);

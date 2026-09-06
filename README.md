@@ -20,7 +20,9 @@ src/core/     world.c     room load, the explicit tick order, draw order
               level_data.*  rooms dumped from data.win (source of truth)
 src/objects/  dog.c box.c hole.c door.c button.c items.c house.c
               fx.c butterfly.c flower.c dialogue.c transition.c title.c
-src/render.c  raylib backend: assets, surfaces, bloom, fonts, replay
+src/render.c  raylib backend: assets, surfaces, bloom, replay
+              (UI text is Renogare at window scale; the house counter
+              keeps the recovered pixel digits font)
 src/main.c    platform glue: window, input, audio
 ```
 
@@ -44,7 +46,9 @@ win sequencing — verified by headless tests.
 
 `docs/architecture.md` expands on how the layers fit together and the
 recovery conventions the ports follow (bbox-to-cell stamping, GameMaker
-angle conventions, sprite identity from the recovered object table).
+angle conventions, sprite identity from the recovered object table,
+which presentation choices are deliberate substitutions — window-scale
+text, the 9-slice dialogue panel, the dropped ground tile layer).
 
 ## Build and run on Windows
 

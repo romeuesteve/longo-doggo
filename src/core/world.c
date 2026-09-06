@@ -93,34 +93,26 @@ static int rects_strictly_overlap(float ax, float ay, float aw, float ah,
     return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
-/* Cells whose probe rect strictly overlaps the placed-object bbox.  The
- * lid probe shifts the cell rect up 4px, matching the box sprite whose
- * lid pokes into the cell above (only boxes press buttons through it). */
-static void compute_zone_ex(SimWorld *w, uint16_t *zone, int *count,
-                            float bx, float by, float bw, float bh,
-                            int with_lid)
+/* Cells whose 16px probe rect strictly overlaps the placed-object bbox.
+ * Note: the original also let a box press a button from the cell below
+ * through its 4px lid overlap (sprBox is a fully opaque 16x20 sprite);
+ * that reads as a false press in play, so boxes only press from the
+ * button's own cell here. */
+static void compute_zone(SimWorld *w, uint16_t *zone, int *count, float bx,
+                         float by, float bw, float bh)
 {
-    const float box_lid_dy = -4.0f;
     *count = 0;
     for (int cy = 0; cy < w->cells_h; cy++) {
         for (int cx = 0; cx < w->cells_w; cx++) {
             float rx = (float)cx * SIM_CELL;
             float ry = (float)cy * SIM_CELL;
             uint16_t cell = sim_cell_of(cx, cy);
-            int hit = rects_strictly_overlap(rx, ry, SIM_CELL, SIM_CELL, bx,
-                                             by, bw, bh);
-            if (!hit && with_lid)
-                hit = rects_strictly_overlap(rx, ry + box_lid_dy, SIM_CELL,
-                                             SIM_CELL, bx, by, bw, bh);
-            if (hit && *count < BUTTON_ZONE_MAX) zone[(*count)++] = cell;
+            if (rects_strictly_overlap(rx, ry, SIM_CELL, SIM_CELL, bx, by, bw,
+                                       bh) &&
+                *count < BUTTON_ZONE_MAX)
+                zone[(*count)++] = cell;
         }
     }
-}
-
-static void compute_zone(SimWorld *w, uint16_t *zone, int *count, float bx,
-                         float by, float bw, float bh)
-{
-    compute_zone_ex(w, zone, count, bx, by, bw, bh, 0);
 }
 
 /* Cells whose 16px probe rect strictly overlaps the bbox get `kind` (the
@@ -208,12 +200,9 @@ static void load_room(SimWorld *w, int room_index)
             break;
         case LONGO_OBJ_BUTTON: {
             uint16_t zone[BUTTON_ZONE_MAX];
-            uint16_t box_zone[BUTTON_ZONE_MAX];
-            int zone_count, box_zone_count;
+            int zone_count;
             compute_zone(w, zone, &zone_count, p->x, p->y, 16, 16);
-            compute_zone_ex(w, box_zone, &box_zone_count, p->x, p->y, 16, 16,
-                            1);
-            button_place(zone, zone_count, box_zone, box_zone_count);
+            button_place(zone, zone_count);
             break;
         }
         case LONGO_OBJ_DOOR:
@@ -222,24 +211,28 @@ static void load_room(SimWorld *w, int room_index)
             break;
         case LONGO_OBJ_GOAL: {
             /* placed directly (title/tutorial rooms); oGoal's sprite is the
-             * 64x64 sprHouse with origin (32, 64) */
-            float gx = p->x - 32;
-            float gy = p->y - 64;
+             * 64x64 sprHouse with origin (32, 64).  The solid mask follows
+             * the house walls (sprite x 9..54 -> 48px centred on the
+             * anchor, from the stored cell down); the roof and eaves
+             * overhang stay background (deliberate playability call — the
+             * recovered sprite has a full-image automatic mask). */
+            float gx = p->x - 24;
+            float gy = p->y - 32;
             house_place_goal(sim_cell_of((int)floorf(p->x / SIM_CELL),
                                          (int)floorf((p->y - 32) / SIM_CELL)));
-            mark_footprint(w, gx, gy, 64, 64, SOLID_GOAL);
+            mark_footprint(w, gx, gy, 48, 32, SOLID_GOAL);
             break;
         }
         case LONGO_OBJ_HOUSESPAWNER: {
             /* oHouseSpawner create: goal at (x+8, y+16), win at (x-8, y+16)
-             * with xscale 2 (a 32x32 bbox) */
+             * with xscale 2 (a 32x32 bbox); wall-width mask like oGoal */
             float gx = p->x + 8;
             float gy = p->y + 16;
             float wx = p->x - 8;
             float wy = p->y + 16;
             house_place_goal(sim_cell_of((int)floorf(gx / SIM_CELL),
                                          (int)floorf((gy - 32) / SIM_CELL)));
-            mark_footprint(w, gx - 32, gy - 64, 64, 64, SOLID_GOAL);
+            mark_footprint(w, gx - 24, gy - 32, 48, 32, SOLID_GOAL);
             {
                 uint16_t zone[HOUSE_WIN_ZONE_MAX];
                 int count;
@@ -359,15 +352,14 @@ void world_draw(void)
     view_layer(VIEW_WORLD);
     view_tile_layers(700, 0, 0); /* sprTile background */
     const LongoRoomTileMap *tiles = room_tiles_for(game_world.room);
-    if (tiles != NULL) {
-        view_tile_layers(tiles->tiles_1.depth, 1, 1);
-        view_tile_layers(tiles->tiles_3.depth, 2, 2);
-    }
+    if (tiles != NULL)
+        view_tile_layers(tiles->tiles_3.depth, 1, 1);
     if (game_world.shadows_present && dog_alive())
         view_shadow_composite(210, 0);
     dog_draw(0);
     box_draw(0);
     door_draw(0);
+    hole_draw();
     button_draw(0);
     items_draw(0);
     house_draw(0);

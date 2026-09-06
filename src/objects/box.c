@@ -69,8 +69,9 @@ bool box_push(int index, uint16_t from_cell, int dir)
     if (!cell_in_bounds(bcx, bcy)) return false;
 
     int hole = hole_index_at(beyond);
-    if (hole >= 0) {
-        /* the box glides into the hole and fills it */
+    if (hole >= 0 && !hole_is_full(hole)) {
+        /* an open hole swallows the box and counts as filled; a filled
+         * hole is normal ground and the box lands on top of it */
         boxes[index].alive = false;
         solid_clear(from_cell);
         hole_fill(hole);

@@ -122,6 +122,8 @@ static bool load_sprite(LongoRender *render, LongoSprite sprite)
     return render->sprite_loaded[sprite];
 }
 
+/* The recovered FontDigits bitmap font, used only for the in-world house
+ * counter (font_id 2) so the number stays pixelated with the game. */
 static bool load_bitmap_font(LongoRender *render, LongoBitmapFont *font,
                              const char *image_name, const char *glyph_name)
 {
@@ -177,6 +179,38 @@ static bool load_bitmap_font(LongoRender *render, LongoBitmapFont *font,
     UnloadFileText(csv);
     font->loaded = true;
     return true;
+}
+
+static float bitmap_text_width(const LongoBitmapFont *font, const char *text)
+{
+    float width = 0.0f;
+    if (font == NULL || text == NULL) return 0.0f;
+    for (const unsigned char *c = (const unsigned char *)text; *c; ++c) {
+        if (*c < LONGO_BITMAP_FONT_GLYPHS && font->glyphs[*c].present)
+            width += font->glyphs[*c].advance;
+        else
+            width += 4.0f;
+    }
+    return width;
+}
+
+static void draw_bitmap_text(const LongoBitmapFont *font, const char *text,
+                             float x, float y, bool centered, Color color)
+{
+    if (font == NULL || !font->loaded || text == NULL) return;
+    if (centered) x -= bitmap_text_width(font, text) * 0.5f;
+    for (const unsigned char *c = (const unsigned char *)text; *c; ++c) {
+        if (*c >= LONGO_BITMAP_FONT_GLYPHS || !font->glyphs[*c].present) {
+            x += 4.0f;
+            continue;
+        }
+        const LongoBitmapGlyph *g = &font->glyphs[*c];
+        Rectangle dest = { x, y + (float)g->offset, (float)g->source.width,
+                           (float)g->source.height };
+        DrawTexturePro(font->texture, g->source, dest, (Vector2){ 0, 0 }, 0.0f,
+                       color);
+        x += (float)g->advance;
+    }
 }
 
 static Sound load_sound_relative(const LongoRender *render, const char *file,
@@ -290,19 +324,8 @@ bool longo_render_init(LongoRender *render, const char *asset_root)
             SetTextureFilter(render->tileset1, TEXTURE_FILTER_POINT);
             render->tileset1_loaded = render->tileset1.id != 0;
         }
-        snprintf(path, sizeof(path), "backgrounds/GroundTileSet.png");
-        make_asset_path(render, path, path, sizeof(path));
-        if (file_exists(path)) {
-            render->ground_tileset = LoadTexture(path);
-            SetTextureFilter(render->ground_tileset, TEXTURE_FILTER_POINT);
-            render->ground_tileset_loaded = render->ground_tileset.id != 0;
-        }
     }
 
-    load_bitmap_font(render, &render->font_longo, "LongoFont.png",
-                     "fonts/glyphs_LongoFont.csv");
-    load_bitmap_font(render, &render->font_longo_bold, "LongoFontBold.png",
-                     "fonts/glyphs_LongoFontBold.csv");
     load_bitmap_font(render, &render->font_digits, "FontDigits.png",
                      "fonts/glyphs_FontDigits.csv");
 
@@ -331,12 +354,8 @@ void longo_render_shutdown(LongoRender *render)
     for (int s = 0; s < 32; s++) {
         if (render->sprite_loaded[s]) UnloadTexture(render->sprites[s]);
     }
-    if (render->font_longo.loaded) UnloadTexture(render->font_longo.texture);
-    if (render->font_longo_bold.loaded)
-        UnloadTexture(render->font_longo_bold.texture);
-    if (render->font_digits.loaded) UnloadTexture(render->font_digits.texture);
     if (render->tileset1_loaded) UnloadTexture(render->tileset1);
-    if (render->ground_tileset_loaded) UnloadTexture(render->ground_tileset);
+    if (render->font_digits.loaded) UnloadTexture(render->font_digits.texture);
     for (int s = 0; s < 7; s++) {
         if (render->sound_loaded[s]) UnloadSound(render->sounds[s]);
     }
@@ -361,7 +380,12 @@ static Color to_ray_color(ViewColor c)
     return (Color){ c.r, c.g, c.b, c.a };
 }
 
-/* draw_sprite_ext(): (x, y) is the sprite origin position. */
+/* draw_sprite_ext(): (x, y) is the sprite origin position.  GameMaker
+ * maps sprite row 0 to y - oy*yscale and row fh to y + (fh - oy)*yscale,
+ * mirroring the texture when a scale is negative — a negative yscale on
+ * a top-left origin extends the sprite upward.  raylib only flips via
+ * negative source rects, so derive the on-screen AABB, flip the source,
+ * and pivot the rotation at the origin point. */
 static void draw_sprite_origin(LongoRender *render, LongoSprite sprite,
                                int frame, float x, float y, float xscale,
                                float yscale, float rotation, Color tint,
@@ -377,26 +401,32 @@ static void draw_sprite_origin(LongoRender *render, LongoSprite sprite,
     int ox = longo_sprite_origin_x(sprite);
     int oy = longo_sprite_origin_y(sprite);
 
+    float x0 = x - (float)ox * xscale;
+    float x1 = x + (float)(fw - ox) * xscale;
+    float y0 = y - (float)oy * yscale;
+    float y1 = y + (float)(fh - oy) * yscale;
     Rectangle source = { (float)(frame * fw), 0.0f, (float)fw, (float)fh };
-    Vector2 origin = { ox * xscale, oy * yscale };
-    Rectangle dest = { x, y, (float)fw * xscale, (float)fh * yscale };
+    if (xscale < 0.0f) {
+        source.x += source.width;
+        source.width = -source.width;
+    }
+    if (yscale < 0.0f) {
+        source.y += source.height;
+        source.height = -source.height;
+    }
+    Rectangle dest = { x, y, fabsf(x1 - x0), fabsf(y1 - y0) };
+    /* raylib's dest.x/y is where the origin point lands (the quad spans
+     * dest - origin .. dest + size - origin), so dest stays on the GM
+     * origin point and origin carries the offset to the AABB corner */
+    Vector2 origin = { x - fminf(x0, x1), y - fminf(y0, y1) };
     Color c = tint;
     c.a = (unsigned char)(255.0f * alpha + 0.5f);
-    if (rotation != 0.0f || xscale != 1.0f || yscale != 1.0f) {
-        /* view items carry GameMaker angles (positive = counterclockwise
-         * on screen); raylib rotates clockwise, so flip the sign once
-         * here instead of at every push site */
-        DrawTexturePro(render->sprites[sprite], source, dest, origin,
-                       -rotation, c);
-    } else {
-        DrawTextureRec(render->sprites[sprite], source,
-                       (Vector2){ x - origin.x, y - origin.y }, c);
-    }
+    DrawTexturePro(render->sprites[sprite], source, dest, origin, -rotation,
+                   c);
 }
 
 /* draw_sprite_part_ext(): source region in frame coordinates, clipped to
- * the frame bounds like GameMaker's draw_sprite_part*; no origin offset. */
-static void draw_sprite_part_ext(LongoRender *render, LongoSprite sprite,
+ * the frame bounds like GameMaker's draw_sprite_part*; no origin offset. */static void draw_sprite_part_ext(LongoRender *render, LongoSprite sprite,
                                  int frame, int src_x, int src_y, int src_w,
                                  int src_h, float x, float y, float xscale,
                                  float yscale, Color tint, float alpha)
@@ -422,6 +452,49 @@ static void draw_sprite_part_ext(LongoRender *render, LongoSprite sprite,
                    0.0f, c);
 }
 
+/* 9-slice panel: the corners keep their native size, the edges and the
+ * centre cell stretch to the destination rect (the dialogue panel; the
+ * original just scaled the whole 24x24 sprite). */
+static void draw_nine_patch(LongoRender *render, LongoSprite sprite,
+                            int frame, float x, float y, float w, float h,
+                            Color tint, float alpha)
+{
+    if (sprite <= LONGO_SPR_NONE || !render->sprite_loaded[sprite]) return;
+    int frames = longo_sprite_frames(sprite);
+    if (frames <= 0) return;
+    int fw = render->sprites[sprite].width / frames;
+    int fh = render->sprites[sprite].height;
+    if (frame < 0) frame = 0;
+    if (frame >= frames) frame %= frames;
+    float tex_x = (float)(frame * fw);
+    float cx = fw / 3.0f, cy = fh / 3.0f;
+    float iw = w - 2.0f * cx;
+    float ih = h - 2.0f * cy;
+    if (iw < 0.0f) iw = 0.0f;
+    if (ih < 0.0f) ih = 0.0f;
+    Color c = tint;
+    c.a = (unsigned char)(255.0f * alpha + 0.5f);
+    Texture2D tex = render->sprites[sprite];
+
+    struct {
+        Rectangle src, dst;
+    } parts[9] = {
+        { { tex_x + 0.0f, 0.0f, cx, cy }, { x, y, cx, cy } },
+        { { tex_x + cx, 0.0f, cx, cy }, { x + cx, y, iw, cy } },
+        { { tex_x + 2 * cx, 0.0f, cx, cy }, { x + cx + iw, y, cx, cy } },
+        { { tex_x + 0.0f, cy, cx, cy }, { x, y + cy, cx, ih } },
+        { { tex_x + cx, cy, cx, cy }, { x + cx, y + cy, iw, ih } },
+        { { tex_x + 2 * cx, cy, cx, cy }, { x + cx + iw, y + cy, cx, ih } },
+        { { tex_x + 0.0f, 2 * cy, cx, cy }, { x, y + cy + ih, cx, cy } },
+        { { tex_x + cx, 2 * cy, cx, cy }, { x + cx, y + cy + ih, iw, cy } },
+        { { tex_x + 2 * cx, 2 * cy, cx, cy },
+          { x + cx + iw, y + cy + ih, cx, cy } }
+    };
+    for (int i = 0; i < 9; i++)
+        DrawTexturePro(tex, parts[i].src, parts[i].dst, (Vector2){ 0, 0 },
+                       0.0f, c);
+}
+
 static void draw_line_width_color(Vector2 a, Vector2 b, float width, Color c1,
                                   Color c2)
 {
@@ -440,83 +513,67 @@ static void draw_line_width_color(Vector2 a, Vector2 b, float width, Color c1,
 }
 
 /* --------------------------------------------------------------- */
-/* Bitmap text                                                       */
+/* Text: Renogare at window resolution; recovered digits in-world      */
 /* --------------------------------------------------------------- */
 
-static const LongoBitmapFont *font_by_asset(const LongoRender *render,
-                                            int font_id)
-{
-    /* GameMaker font assets: 0 LongoFontBold, 1 LongoFont, 2 FontDigits. */
-    if (font_id == 0 && render->font_longo_bold.loaded)
-        return &render->font_longo_bold;
-    if (font_id == 1 && render->font_longo.loaded) return &render->font_longo;
-    if (font_id == 2 && render->font_digits.loaded) return &render->font_digits;
-    if (render->font_longo.loaded) return &render->font_longo;
-    if (render->font_longo_bold.loaded) return &render->font_longo_bold;
-    return NULL;
-}
+/* UI text renders with Renogare (repo assets/fonts; converted to
+ * TrueType outlines so stb_truetype can rasterize it).  The atlas is
+ * baked at the drawn pixel size (logical 10px * the 4x window scale)
+ * with point filtering, so text is crisp instead of blurry.  The
+ * recovered GameMaker fonts were an 8px "DejaVu Sans" bitmap that turns
+ * to mush inside the 304x208 surface.  Alignment follows the recovered
+ * draw state: font 0 (bold) left-aligned, fonts 1/2 centered. */
 
-static float text_width_scaled(const LongoBitmapFont *font, const char *text,
-                               float scale)
+#define LONGO_TEXT_BASE_PX (10.0f * (float)LONGO_WINDOW_SCALE)
+
+static Font text_font(LongoRender *render)
 {
-    float line_width = 0.0f, maximum = 0.0f;
-    if (font == NULL || text == NULL) return 0.0f;
-    for (const unsigned char *c = (const unsigned char *)text; *c; ++c) {
-        if (*c == '\n') {
-            if (line_width > maximum) maximum = line_width;
-            line_width = 0.0f;
-            continue;
+    static Font ui_font;
+    static bool initialised;
+    if (!initialised) {
+        initialised = true;
+        char path[1024];
+        snprintf(path, sizeof(path), "fonts/renogare.ttf");
+        make_asset_path(render, path, path, sizeof(path));
+        if (!file_exists(path)) {
+            snprintf(path, sizeof(path), "assets/fonts/renogare.ttf");
         }
-        if (*c < LONGO_BITMAP_FONT_GLYPHS && font->glyphs[*c].present)
-            line_width += font->glyphs[*c].advance * scale;
-        else
-            line_width += 4.0f * scale;
+        ui_font = file_exists(path)
+                      ? LoadFontEx(path, (int)LONGO_TEXT_BASE_PX, NULL, 0)
+                      : GetFontDefault();
+        if (ui_font.texture.id != 0 && ui_font.glyphCount > 0)
+            SetTextureFilter(ui_font.texture, TEXTURE_FILTER_POINT);
     }
-    if (line_width > maximum) maximum = line_width;
-    return maximum;
+    return ui_font;
 }
 
-static void draw_glyph_run(const LongoBitmapFont *font, const char *text,
-                           float x, float y, float scale, Color color)
+static float text_ratio_y(void)
 {
-    for (const unsigned char *c = (const unsigned char *)text; *c; ++c) {
-        if (*c == '\n') break;
-        if (*c >= LONGO_BITMAP_FONT_GLYPHS || !font->glyphs[*c].present) {
-            x += 4.0f * scale;
-            continue;
-        }
-        const LongoBitmapGlyph *g = &font->glyphs[*c];
-        Rectangle dest = { x, y + g->offset * scale,
-                           g->source.width * scale, g->source.height * scale };
-        DrawTexturePro(font->texture, g->source, dest, (Vector2){ 0, 0 }, 0.0f,
-                       color);
-        x += g->advance * scale;
+    return (float)GetScreenHeight() / (float)LONGO_LOGICAL_HEIGHT;
+}
+
+static float text_ratio_x(void)
+{
+    return (float)GetScreenWidth() / (float)LONGO_LOGICAL_WIDTH;
+}
+
+static void draw_text_line(Font font, const char *text, float x, float y,
+                           float size, bool centered, Color color)
+{
+    if (text == NULL || text[0] == '\0') return;
+    if (centered) {
+        Vector2 m = MeasureTextEx(font, text, size, 0.0f);
+        x -= m.x * 0.5f;
     }
+    DrawTextEx(font, text, (Vector2){ x, y }, size, 0.0f, color);
 }
 
-static void draw_text_left(const LongoBitmapFont *font, const char *text,
-                           float x, float y, float scale, Color color)
+/* draw_text_ext_transformed() with fa_center: word wrap at `width`,
+ * line separation `sep`, at window scale.  Handles embedded newlines. */
+static void draw_text_wrapped(Font font, const char *text, float x, float y,
+                              float sep, float width, float size, Color color)
 {
-    if (font == NULL || !font->loaded || text == NULL) return;
-    draw_glyph_run(font, text, x, y, scale, color);
-}
-
-static void draw_text_centered(const LongoBitmapFont *font, const char *text,
-                               float x, float y, float scale, Color color)
-{
-    if (font == NULL || !font->loaded || text == NULL) return;
-    float w = text_width_scaled(font, text, scale);
-    draw_glyph_run(font, text, x - w * 0.5f, y, scale, color);
-}
-
-/* draw_text_ext_transformed() with halign center: word wrap at `width`,
- * line separation `sep`, uniform scale.  Handles embedded newlines. */
-static void draw_text_ext_centered(const LongoBitmapFont *font,
-                                   const char *text, float x, float y,
-                                   float sep, float width, float scale,
-                                   Color color)
-{
-    if (font == NULL || !font->loaded || text == NULL) return;
+    if (text == NULL) return;
     const char *p = text;
     float line_y = y;
     while (*p != '\0') {
@@ -546,19 +603,51 @@ static void draw_text_ext_centered(const LongoBitmapFont *font,
                     snprintf(probe, sizeof(probe), "%s %s", out, word);
                 else
                     snprintf(probe, sizeof(probe), "%s", word);
-                if (text_width_scaled(font, probe, scale) > width &&
+                if (MeasureTextEx(font, probe, size, 0.0f).x > width &&
                     out[0] != '\0')
                     break;
                 snprintf(out, sizeof(out), "%s", probe);
                 cursor = w_end;
             }
-            float w = text_width_scaled(font, out, scale);
-            draw_glyph_run(font, out, x - w * 0.5f, line_y, scale, color);
-            line_y += sep * scale;
+            draw_text_line(font, out, x, line_y, size, true, color);
+            line_y += sep;
             if (*cursor == ' ') cursor++;
         }
         p += len;
         if (nl != NULL) p++;
+    }
+}
+
+/* Present-pass replay of the UI text items (everything except the
+ * recovered digits font), in push order per layer. */
+static void draw_text_items_window_scale(LongoRender *render)
+{
+    Font font = text_font(render);
+    float rx = text_ratio_x();
+    float ry = text_ratio_y();
+    for (int layer = VIEW_WORLD; layer <= VIEW_GUI; layer++) {
+        int count;
+        const ViewItem *items = view_items((ViewLayer)layer, &count);
+        for (int i = 0; i < count; i++) {
+            const ViewItem *it = &items[i];
+            if (it->kind != VIEW_ITEM_TEXT &&
+                it->kind != VIEW_ITEM_TEXT_WRAPPED)
+                continue;
+            if (it->font_id == 2) continue; /* in-world digits font */
+            /* the atlas is baked at exactly this size for the default
+             * window scale, so glyphs draw without resampling */
+            float size = LONGO_TEXT_BASE_PX * it->xscale;
+            bool centered = it->font_id != 0;
+            if (it->kind == VIEW_ITEM_TEXT) {
+                draw_text_line(font, it->text, it->x * rx, it->y * ry, size,
+                               centered, to_ray_color(it->color));
+            } else {
+                draw_text_wrapped(font, it->text, it->x * rx, it->y * ry,
+                                  it->line_sep * it->xscale * ry,
+                                  it->text_width * rx, size,
+                                  to_ray_color(it->color));
+            }
+        }
     }
 }
 
@@ -573,17 +662,10 @@ static void draw_tile_layer(LongoRender *render, const LongoTileLayer *layer)
     int tile_count;
 
     if (layer == NULL || layer->data == NULL) return;
-    if (layer->tileset == LONGO_TILESET_GROUND) {
-        atlas = render->ground_tileset;
-        if (!render->ground_tileset_loaded) return;
-        columns = 6;
-        tile_count = 42;
-    } else {
-        atlas = render->tileset1;
-        if (!render->tileset1_loaded) return;
-        columns = 8;
-        tile_count = 64;
-    }
+    atlas = render->tileset1;
+    if (!render->tileset1_loaded) return;
+    columns = 8;
+    tile_count = 64;
     for (int y = 0; y < layer->height; ++y) {
         for (int x = 0; x < layer->width; ++x) {
             unsigned int raw = layer->data[y * layer->width + x];
@@ -621,6 +703,10 @@ static void replay_item(LongoRender *render, const SimWorld *world,
                              it->x, it->y, it->xscale, it->yscale,
                              to_ray_color(it->color), it->alpha);
         break;
+    case VIEW_ITEM_NINE_PATCH:
+        draw_nine_patch(render, it->sprite, it->frame, it->x, it->y, it->w,
+                        it->h, to_ray_color(it->color), it->alpha);
+        break;
     case VIEW_ITEM_LINE:
         draw_line_width_color((Vector2){ it->x, it->y },
                               (Vector2){ it->x2, it->y2 }, it->radius,
@@ -642,13 +728,16 @@ static void replay_item(LongoRender *render, const SimWorld *world,
                       to_ray_color(it->color));
         break;
     case VIEW_ITEM_TEXT:
-        draw_text_left(font_by_asset(render, it->font_id), it->text, it->x,
-                       it->y, it->xscale, to_ray_color(it->color));
+        if (it->font_id == 2 && render->font_digits.loaded) {
+            /* the house counter keeps the recovered pixel font and lives
+             * inside the low-res surface with everything else */
+            draw_bitmap_text(&render->font_digits, it->text, it->x, it->y,
+                             true, to_ray_color(it->color));
+        }
         break;
     case VIEW_ITEM_TEXT_WRAPPED:
-        draw_text_ext_centered(font_by_asset(render, it->font_id), it->text,
-                               it->x, it->y, it->line_sep, it->text_width,
-                               it->xscale, to_ray_color(it->color));
+        /* replayed in the present pass at window scale (see
+         * draw_text_items_window_scale); skip here */
         break;
     case VIEW_ITEM_SHADOW_COMPOSITE:
         if (dog_alive()) {
@@ -671,8 +760,6 @@ static void replay_item(LongoRender *render, const SimWorld *world,
                         DrawTexture(tile, x, y, WHITE);
             }
         } else if (it->frame == 1 && tiles != NULL) {
-            draw_tile_layer(render, &tiles->tiles_1);
-        } else if (it->frame == 2 && tiles != NULL) {
             draw_tile_layer(render, &tiles->tiles_3);
         }
         break;
@@ -804,6 +891,9 @@ void longo_render_frame(LongoRender *render, const SimWorld *world)
                          (float)GetScreenHeight() };
     DrawTexturePro(render->gui_surface.texture, flip, screen, (Vector2){ 0, 0 },
                    0.0f, WHITE);
+    /* text rides on top at window resolution: crisp at any window size
+     * instead of resampled with the pixel surface */
+    draw_text_items_window_scale(render);
     EndDrawing();
 }
 
