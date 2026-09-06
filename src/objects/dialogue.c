@@ -28,7 +28,7 @@ static const char *const TUTORIAL_TEXTS[7] = {
     "Apples make Longo Doggo longer",
     "Instead, pears make him shorter",
     "The house number shows how many length units you must lose",
-    "If you get stuck press 'R' to retry",
+    "If you get stuck press 'R' to retry, or 'Z' to undo",
     "Control Longo Doggo with the arrow keys"
 };
 static const float TUTORIAL_BOX_X[7] = { 103, 136, 198, 0, 144, 103, 103 };

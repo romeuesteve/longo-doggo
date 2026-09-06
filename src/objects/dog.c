@@ -17,6 +17,7 @@
 
 #include "../core/events.h"
 #include "../core/sim_math.h"
+#include "../core/undo.h"
 #include "../core/view.h"
 #include "../core/solid.h"
 #include "box.h"
@@ -25,24 +26,9 @@
 #include "title.h"
 #include "transition.h"
 
-#define DOG_MAX_CHAIN 64
 /* key_cooldown is 2 after each step: it gates the next press for two
  * ticks, so even mashing moves at most one cell every 2 ticks */
 #define DOG_KEY_COOLDOWN 2
-
-typedef struct Dog {
-    bool alive;
-    int cx, cy;  /* head cell */
-    int dir;     /* 0 down, 90 right, 180 up, 270 left (degrees, y-down) */
-    bool play;   /* dialogue gating */
-    int length;  /* number of body parts */
-    uint16_t chain[DOG_MAX_CHAIN];
-    uint8_t pflag[DOG_MAX_CHAIN];
-    bool strain;      /* blocked on the last attempted step (logical only) */
-    int key_cooldown; /* ticks until the next movement press is accepted */
-    int bark_timer;   /* ticks until the idle bark, -1 = disabled */
-    int detached_cell; /* cell the tail vacated on the last step */
-} Dog;
 
 static Dog dog;
 
@@ -70,6 +56,14 @@ void dog_reset(void)
 {
     memset(&dog, 0, sizeof(dog));
     dog.bark_timer = -1;
+}
+
+void dog_capture(Dog *out) { *out = dog; }
+
+void dog_restore(const Dog *snap)
+{
+    dog = *snap;
+    view_snap();
 }
 
 void dog_place(float x, float y)
@@ -277,9 +271,13 @@ static void resolve_pickups(void)
     }
 }
 
-/* Attempt one cell step; returns true on success. */
+/* Attempt one cell step; returns true on success.  Every board change
+ * in the game flows through here, which makes it the one undo point:
+ * the capture lands before the first mutation and is only kept when the
+ * step actually moves (a strained step pushes no phantom history). */
 static bool try_step(int dir)
 {
+    undo_begin_step();
     uint16_t target = cell_neighbour(head_cell(), dir);
     int tcx = sim_cell_x(target);
     int tcy = sim_cell_y(target);
@@ -307,6 +305,7 @@ static bool try_step(int dir)
     dog.strain = false;
     solid_place(target, SOLID_HEAD, 0);
     shift_chain(old_head);
+    undo_commit_step();
     return true;
 }
 

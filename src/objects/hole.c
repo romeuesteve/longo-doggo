@@ -5,12 +5,6 @@
 #include "../core/solid.h"
 #include "../core/view.h"
 
-typedef struct Hole {
-    bool alive;
-    bool full;
-    uint16_t cell;
-} Hole;
-
 static Hole holes[HOLE_MAX];
 static int hole_cnt;
 
@@ -18,6 +12,18 @@ void hole_reset(void)
 {
     memset(holes, 0, sizeof(holes));
     hole_cnt = 0;
+}
+
+void hole_capture(HoleSnapshot *out)
+{
+    memcpy(out->holes, holes, sizeof(holes));
+    out->count = hole_cnt;
+}
+
+void hole_restore(const HoleSnapshot *snap)
+{
+    memcpy(holes, snap->holes, sizeof(holes));
+    hole_cnt = snap->count;
 }
 
 void hole_place(uint16_t cell)

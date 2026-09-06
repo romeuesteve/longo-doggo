@@ -11,6 +11,7 @@ render.c      raylib replay of view items; owns all API conversion
 core/view.c   draw-item kernel + shared animation clocks
 core/world.c  room load (objects -> solid map + entities), tick order
 core/solid.c  the one collision vocabulary: cell -> occupant kind
+core/undo.c   the move history: verbatim board snapshots
 core/rng.h    one xorshift per consumer (sim, fx, butterfly, house)
 core/sim_math.h  shared float math (lengthdir/point_direction/lerp)
 src/objects/  one script per game object; owns state, rules, view
@@ -79,6 +80,20 @@ whole chain with fresh indices. Clearing only the moved cells leaves
 ghost solids (a cell a part vacated stays solid forever) or stale
 indices (the tail resolves to the wrong part's flags).
 
+**Undo is a verbatim time-machine, captured at the one board-changing
+site.** Every gameplay script owns its snapshot (a state struct plus
+`*_capture`/`*_restore`, so adding a field automatically joins the
+history); `core/undo.c` owns the stack. The capture wraps `try_step()`
+in dog.c — the only place a move mutates the board — before the first
+mutation, and commits only when the step actually moves, so strained
+attempts leave no phantom undo points. The solid map is captured
+verbatim instead of re-stamped from the owners on restore: replaying
+exactly what was recorded keeps undo free of stamp-order questions.
+Everything that is not board state — rng, fx, view easing, dialogue,
+the transition — keeps running through an undo (a restored dog snaps
+its eased view position, like a fresh placement), and a room load
+drops the history.
+
 **Presentation substitutions are deliberate and documented.** These
 departures from the literal sprite data exist because it reads badly at
 modern window sizes:
@@ -122,7 +137,9 @@ data: title flow, dialogue gating, press cadence + cooldown, chain
 follow, the tail exception (a length-3 dog looping on four cells),
 scaled-wall stamping, pear sprites, hole rendering + the filled frame,
 the 9-slice bubble, house anchors, view snap, box push/hole fill,
-button/door counting, the win transition and retry. View-level asserts
-inspect the pushed `ViewItem`s directly — no renderer needed.
+button/door counting, the win transition, retry, and undo (steps, box
+pushes into holes, eaten apples, a fatal pear, and history dropped on
+a room load). View-level asserts inspect the pushed `ViewItem`s
+directly — no renderer needed.
 `tests/playthrough.c` replays a timed input script and prints states
 for manual review.

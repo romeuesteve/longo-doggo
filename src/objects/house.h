@@ -12,6 +12,23 @@
 
 #define HOUSE_WIN_ZONE_MAX 16
 
+/* State defined here so the undo history can capture it verbatim
+ * (core/undo.c).  The goal cell and win zone are room-load constants;
+ * remain/win_sound_played/win_alive change during play. */
+typedef struct House {
+    bool alive;
+    uint16_t goal_cell;
+    int remain;
+    bool win_sound_played;
+    bool win_alive;
+    uint16_t win_zone[HOUSE_WIN_ZONE_MAX];
+    int win_zone_count;
+} House;
+
+/* Undo capture/restore (singleton). */
+void house_capture(House *out);
+void house_restore(const House *snap);
+
 void house_reset(void);
 void house_place_goal(uint16_t goal_cell);
 void house_place_win_zone(const uint16_t *cells, int count);

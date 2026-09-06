@@ -9,8 +9,26 @@
 
 #define HOLE_MAX 32
 
+/* State defined here so the undo history can capture it verbatim
+ * (core/undo.c). */
+typedef struct Hole {
+    bool alive;
+    bool full;
+    uint16_t cell;
+} Hole;
+
+typedef struct HoleSnapshot {
+    Hole holes[HOLE_MAX];
+    int count;
+} HoleSnapshot;
+
 void hole_reset(void);
 void hole_place(uint16_t cell);
+
+/* Undo capture/restore. */
+void hole_capture(HoleSnapshot *out);
+void hole_restore(const HoleSnapshot *snap);
+
 bool hole_is_full(int index);
 /* A box landing here fills the hole (the box is consumed by the caller). */
 void hole_fill(int index);

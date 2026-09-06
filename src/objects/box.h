@@ -10,9 +10,25 @@
 
 #define BOX_MAX 32
 
+/* State defined here so the undo history can capture it verbatim
+ * (core/undo.c). */
+typedef struct Box {
+    bool alive;
+    uint16_t cell;
+} Box;
+
+typedef struct BoxSnapshot {
+    Box boxes[BOX_MAX];
+    int count;
+} BoxSnapshot;
+
 void box_reset(void);
 void box_place(uint16_t cell);
 void box_set_cell(int index, uint16_t cell); /* room edit + test hook */
+
+/* Undo capture/restore (the eased view position re-snaps on restore). */
+void box_capture(BoxSnapshot *out);
+void box_restore(const BoxSnapshot *snap);
 
 int box_count(void);
 bool box_alive(int index);

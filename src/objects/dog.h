@@ -21,6 +21,28 @@
 #define DOG_PART_LEGS 0x2
 #define DOG_PART_BUTT 0x4
 
+#define DOG_MAX_CHAIN 64
+
+/* The full gameplay state, defined here so the undo history can capture
+ * and restore it with a plain struct assignment (core/undo.c). */
+typedef struct Dog {
+    bool alive;
+    int cx, cy;  /* head cell */
+    int dir;     /* 0 down, 90 right, 180 up, 270 left (degrees, y-down) */
+    bool play;   /* dialogue gating */
+    int length;  /* number of body parts */
+    uint16_t chain[DOG_MAX_CHAIN];
+    uint8_t pflag[DOG_MAX_CHAIN];
+    bool strain;      /* blocked on the last attempted step (logical only) */
+    int key_cooldown; /* ticks until the next movement press is accepted */
+    int bark_timer;   /* ticks until the idle bark, -1 = disabled */
+    int detached_cell; /* cell the tail vacated on the last step */
+} Dog;
+
+/* Undo capture/restore (the eased view position re-snaps on restore). */
+void dog_capture(Dog *out);
+void dog_restore(const Dog *snap);
+
 void dog_reset(void);
 void dog_place(float x, float y);         /* room placement (pixel coords) */
 void dog_title_arrangement(void);         /* the title room's S-curve */

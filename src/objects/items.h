@@ -11,6 +11,24 @@
 
 #define ITEMS_MAX 32
 
+/* State defined here so the undo history can capture it verbatim
+ * (core/undo.c). */
+typedef enum ItemKind { KIND_APPLE, KIND_SKULL, KIND_COUNT } ItemKind;
+
+typedef struct Item {
+    bool alive;
+    uint16_t cell;
+} Item;
+
+typedef struct ItemsSnapshot {
+    Item items[KIND_COUNT][ITEMS_MAX];
+    int count[KIND_COUNT];
+} ItemsSnapshot;
+
+/* Undo capture/restore. */
+void items_capture(ItemsSnapshot *out);
+void items_restore(const ItemsSnapshot *snap);
+
 void items_reset(void);
 void apple_place(uint16_t cell);
 void skull_place(uint16_t cell);

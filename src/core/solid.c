@@ -5,14 +5,19 @@
 #include "../objects/dog.h"
 #include "../objects/hole.h"
 
-typedef struct SolidCell {
-    SolidKind kind;
-    int index;
-} SolidCell;
-
 static SolidCell cells[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
 
 void solid_reset(void) { memset(cells, 0, sizeof(cells)); }
+
+void solid_capture(SolidSnapshot *out)
+{
+    memcpy(out->cells, cells, sizeof(cells));
+}
+
+void solid_restore(const SolidSnapshot *snap)
+{
+    memcpy(cells, snap->cells, sizeof(cells));
+}
 
 void solid_place(uint16_t cell, SolidKind kind, int index)
 {

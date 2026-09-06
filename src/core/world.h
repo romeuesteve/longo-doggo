@@ -33,6 +33,7 @@ typedef struct SimInput {
      * state is not represented; consumers read edges only. */
     unsigned char pressed_right, pressed_left, pressed_up, pressed_down;
     unsigned char pressed_space, pressed_enter, pressed_e, pressed_r;
+    unsigned char pressed_undo;
     unsigned char pressed_any;
 } SimInput;
 

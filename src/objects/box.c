@@ -9,11 +9,6 @@
 #include "../objects/dog.h"
 #include "hole.h"
 
-typedef struct Box {
-    bool alive;
-    uint16_t cell;
-} Box;
-
 static Box boxes[BOX_MAX];
 static int box_cnt;
 
@@ -23,6 +18,19 @@ void box_reset(void)
 {
     memset(boxes, 0, sizeof(boxes));
     box_cnt = 0;
+}
+
+void box_capture(BoxSnapshot *out)
+{
+    memcpy(out->boxes, boxes, sizeof(boxes));
+    out->count = box_cnt;
+}
+
+void box_restore(const BoxSnapshot *snap)
+{
+    memcpy(boxes, snap->boxes, sizeof(boxes));
+    box_cnt = snap->count;
+    for (int i = 0; i < box_cnt; i++) view_snap(i);
 }
 
 void box_place(uint16_t cell)

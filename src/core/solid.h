@@ -28,7 +28,23 @@ typedef enum SolidKind {
     SOLID_HEAD
 } SolidKind;
 
+/* Cell -> occupant entry; defined here so the undo history can capture
+ * the whole map verbatim (core/undo.c). */
+typedef struct SolidCell {
+    SolidKind kind;
+    int index;
+} SolidCell;
+
+typedef struct SolidSnapshot {
+    SolidCell cells[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
+} SolidSnapshot;
+
 void solid_reset(void);
+
+/* Undo capture/restore. */
+void solid_capture(SolidSnapshot *out);
+void solid_restore(const SolidSnapshot *snap);
+
 void solid_place(uint16_t cell, SolidKind kind, int index);
 void solid_clear(uint16_t cell);
 

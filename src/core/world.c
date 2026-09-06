@@ -24,6 +24,7 @@
 #include "../objects/flower.h"
 #include "../objects/fx.h"
 #include "solid.h"
+#include "undo.h"
 #include "rng.h"
 
 #include <math.h>
@@ -156,6 +157,7 @@ static void load_room(SimWorld *w, int room_index)
     flower_reset();
     butterfly_reset();
     fx_reset(); /* smoke/bark/popups do not survive a room load */
+    undo_reset(); /* neither does the move history */
     w->shadows_present = 0;
 
     for (int i = 0; i < room->object_count; i++) {
@@ -285,6 +287,10 @@ void sim_tick(SimWorld *w, const SimInput *input)
     else memset(&w->input, 0, sizeof(w->input));
     w->tick++;
     events_clear();
+
+    /* 0. undo press: restore the pre-step board and consume the tick,
+     * so the restored state is not also stepped this frame */
+    if (undo_tick(&w->input)) return;
 
     /* 1. dog step + pickups */
     dog_tick(&w->input);

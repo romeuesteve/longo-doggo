@@ -22,7 +22,7 @@ endif()
 if(LONGO_DOGGO_BUILD_TESTS AND LONGO_DOGGO_PLATFORM STREQUAL "native")
     enable_testing()
     add_executable(longo_game_smoke tests/game_smoke.c
-        src/core/world.c src/core/solid.c src/core/events.c src/core/view.c src/objects/dog.c src/objects/hole.c src/objects/box.c src/objects/door.c src/objects/button.c src/objects/items.c src/objects/house.c src/objects/fx.c src/objects/butterfly.c src/objects/flower.c src/objects/dialogue.c src/objects/transition.c src/objects/title.c src/room_tiles.c src/sprites.c src/level_data.c)
+        src/core/world.c src/core/solid.c src/core/undo.c src/core/events.c src/core/view.c src/objects/dog.c src/objects/hole.c src/objects/box.c src/objects/door.c src/objects/button.c src/objects/items.c src/objects/house.c src/objects/fx.c src/objects/butterfly.c src/objects/flower.c src/objects/dialogue.c src/objects/transition.c src/objects/title.c src/room_tiles.c src/sprites.c src/level_data.c)
     target_compile_features(longo_game_smoke PRIVATE c_std_99)
     target_include_directories(longo_game_smoke PRIVATE src src/core)
     if(UNIX AND NOT APPLE)
@@ -71,6 +71,7 @@ set(LONGO_DOGGO_SOURCES
     src/main.c
     src/core/world.c
     src/core/solid.c
+    src/core/undo.c
     src/core/events.c
     src/core/view.c
     src/objects/dog.c

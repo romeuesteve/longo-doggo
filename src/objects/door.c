@@ -11,13 +11,6 @@
  * the cell stays solid for those 14 ticks. */
 #define DOOR_OPEN_TICKS 14
 
-typedef struct Door {
-    bool alive;
-    bool open;       /* all buttons pressed; solid until removed */
-    int open_timer;
-    uint16_t cell;
-} Door;
-
 static Door doors[DOOR_MAX];
 static int door_cnt;
 
@@ -25,6 +18,18 @@ void door_reset(void)
 {
     memset(doors, 0, sizeof(doors));
     door_cnt = 0;
+}
+
+void door_capture(DoorSnapshot *out)
+{
+    memcpy(out->doors, doors, sizeof(doors));
+    out->count = door_cnt;
+}
+
+void door_restore(const DoorSnapshot *snap)
+{
+    memcpy(doors, snap->doors, sizeof(doors));
+    door_cnt = snap->count;
 }
 
 void door_place(uint16_t cell)

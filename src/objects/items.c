@@ -5,13 +5,6 @@
 #include "../core/view.h"
 #include "../core/world.h"
 
-typedef struct Item {
-    bool alive;
-    uint16_t cell;
-} Item;
-
-enum { KIND_APPLE, KIND_SKULL, KIND_COUNT };
-
 static Item items[KIND_COUNT][ITEMS_MAX];
 static int item_cnt[KIND_COUNT];
 
@@ -19,6 +12,18 @@ void items_reset(void)
 {
     memset(items, 0, sizeof(items));
     memset(item_cnt, 0, sizeof(item_cnt));
+}
+
+void items_capture(ItemsSnapshot *out)
+{
+    memcpy(out->items, items, sizeof(items));
+    memcpy(out->count, item_cnt, sizeof(item_cnt));
+}
+
+void items_restore(const ItemsSnapshot *snap)
+{
+    memcpy(items, snap->items, sizeof(items));
+    memcpy(item_cnt, snap->count, sizeof(item_cnt));
 }
 
 static void item_place(int kind, uint16_t cell)

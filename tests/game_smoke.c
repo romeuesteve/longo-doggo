@@ -556,6 +556,138 @@ static void test_retry_reloads_room(void)
     assert(dog_play()); /* the level3 room has no dialogue */
 }
 
+/* one undo press, spaced like a movement press */
+static void press_undo(void)
+{
+    SimInput input;
+    memset(&input, 0, sizeof(input));
+    input.pressed_undo = 1;
+    tick_with(&input);
+    tick_idle(1);
+}
+
+static void test_undo(void)
+{
+    int start_x, start_y;
+
+    /* empty history: an undo press is a harmless no-op */
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+    start_x = dog_cx();
+    start_y = dog_cy();
+    press_undo();
+    assert(dog_cx() == start_x && dog_cy() == start_y);
+
+    /* one step, one undo: head cell, facing and chain all return, and
+     * the solid map follows (the stepped-into cell is free again) */
+    press_dir(90);
+    assert(dog_cx() == start_x + 1);
+    assert(dog_dir() == 90);
+    press_undo();
+    assert(dog_cx() == start_x && dog_cy() == start_y);
+    assert(dog_dir() == 180);
+    assert(dog_part_cell(0) == sim_cell_of(start_x, start_y + 1));
+    assert(dog_length() == 5);
+    assert(solid_kind_at(sim_cell_of(start_x + 1, start_y)) == SOLID_EMPTY);
+
+    /* a box pushed into the hole, then undone: the box is back, the
+     * hole is open again and the dog stands where it pushed from */
+    {
+        int box = box_at_cell(6, 5);
+        int hole = hole_at_cell(13, 5);
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        assert(box >= 0 && hole >= 0 && !hole_is_full(hole));
+        box_set_cell(box, sim_cell_of(12, 5));
+        dog_teleport(11, 5);
+        input.pressed_right = 1;
+        tick_with(&input);
+        tick_idle(1);
+        assert(hole_is_full(hole));
+        assert(!box_alive(box));
+        press_undo();
+        assert(!hole_is_full(hole));
+        assert(box_alive(box));
+        assert(box_cell(box) == sim_cell_of(12, 5));
+        assert(box_index_at(sim_cell_of(12, 5)) == box);
+        assert(dog_cx() == 11 && dog_cy() == 5);
+    }
+
+    /* eating an apple grows the dog; undo shrinks it back and the
+     * apple returns */
+    sim_room_goto(world_ptr(), SIM_ROOM_TUTORIAL);
+    tick_idle(2);
+    {
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        for (int i = 0; i < 7; i++) {
+            input.pressed_space = 1;
+            tick_with(&input);
+            input.pressed_space = 0;
+            tick_idle(1);
+        }
+        tick_idle(DIALOGUE_SHRINK_TICKS + 10);
+    }
+    assert(dog_play());
+    {
+        int apple = -1;
+        int length_before;
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        for (int i = 0; i < apple_count(); i++)
+            if (apple_alive(i)) {
+                apple = i;
+                break;
+            }
+        assert(apple >= 0);
+        length_before = dog_length();
+        dog_teleport(sim_cell_x(apple_cell(apple)) - 1,
+                     sim_cell_y(apple_cell(apple)));
+        input.pressed_right = 1;
+        tick_with(&input);
+        tick_idle(1);
+        assert(dog_length() == length_before + 1);
+        assert(!apple_alive(apple));
+        press_undo();
+        assert(dog_length() == length_before);
+        assert(apple_alive(apple));
+        assert(dog_cx() == sim_cell_x(apple_cell(apple)) - 1);
+    }
+
+    /* a fatal pear at minimum length is undoable: the dog comes back */
+    {
+        int skull = -1;
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        for (int i = 0; i < skull_count(); i++)
+            if (skull_alive(i)) {
+                skull = i;
+                break;
+            }
+        assert(skull >= 0);
+        dog_set_length(2);
+        dog_teleport(sim_cell_x(skull_cell(skull)) - 1,
+                     sim_cell_y(skull_cell(skull)));
+        input.pressed_right = 1;
+        tick_with(&input);
+        tick_idle(1);
+        assert(!dog_alive());
+        press_undo();
+        assert(dog_alive());
+        assert(dog_length() == 2);
+        assert(skull_alive(skull));
+    }
+
+    /* a room load drops the history: a fresh room's undo does nothing,
+     * not even one left over from the previous room */
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+    start_x = dog_cx();
+    start_y = dog_cy();
+    press_undo();
+    assert(dog_cx() == start_x && dog_cy() == start_y);
+}
+
 int main(void)
 {
     test_title_flow_and_room_order();
@@ -566,6 +698,7 @@ int main(void)
     test_walls_and_push_rules();
     test_buttons_door_win_retry();
     test_retry_reloads_room();
+    test_undo();
     printf("longo_game_smoke: all tests passed\n");
     return 0;
 }

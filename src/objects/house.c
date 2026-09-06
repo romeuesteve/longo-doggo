@@ -9,16 +9,6 @@
 #include "../core/view.h"
 #include "../core/world.h"
 
-typedef struct House {
-    bool alive;
-    uint16_t goal_cell;
-    int remain;
-    bool win_sound_played;
-    bool win_alive;
-    uint16_t win_zone[HOUSE_WIN_ZONE_MAX];
-    int win_zone_count;
-} House;
-
 static House house;
 
 /* view state: house pulse (count/count2 squash) */
@@ -28,6 +18,14 @@ static float v_scale_x = 1.0f, v_scale_y = 1.0f;
 /* cosmetic puff scatter; a private stream so the view never drains the
  * simulation's rng (see core/rng.h) */
 static Rng house_rng = { 0x13579bdfu };
+
+void house_capture(House *out) { *out = house; }
+
+void house_restore(const House *snap)
+{
+    house = *snap;
+    /* the pulse counters are cosmetic; they re-converge from remain */
+}
 
 void house_reset(void)
 {
