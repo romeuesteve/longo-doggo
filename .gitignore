@@ -23,3 +23,7 @@ Makefile
 *.wasm
 *.html
 *.js
+
+# itch.io butler staging folders
+itch/
+!src/web/shell.html

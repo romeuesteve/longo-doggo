@@ -116,6 +116,11 @@ if(LONGO_DOGGO_BUILD_GAME AND NOT LONGO_DOGGO_MISSING_SOURCES)
                 "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts@assets/fonts")
         endif()
         target_link_options(longo_doggo PRIVATE "SHELL:-sALLOW_MEMORY_GROWTH=1")
+        # itch.io embeds the generated HTML directly, so the shell is a bare
+        # canvas that fills the frame; the default shell would show its
+        # Emscripten logo and resize controls inside the game.
+        target_link_options(longo_doggo PRIVATE
+            "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/src/web/shell.html")
     elseif(EXISTS "${LONGO_RUNTIME_ASSETS}")
         add_custom_command(TARGET longo_doggo POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -139,7 +144,8 @@ if(LONGO_DOGGO_BUILD_GAME AND NOT LONGO_DOGGO_MISSING_SOURCES)
 
     if(LONGO_DOGGO_PLATFORM STREQUAL "web")
         # Emscripten emits the companion .js and .wasm files beside this HTML shell.
-        set_target_properties(longo_doggo PROPERTIES SUFFIX ".html")
+        set_target_properties(longo_doggo PROPERTIES SUFFIX ".html"
+            LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/web/shell.html")
     endif()
 else()
     if(LONGO_DOGGO_BUILD_GAME)

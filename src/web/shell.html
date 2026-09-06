@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Longo Doggo</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; }
+  /* itch.io sizes the embed frame to the game's window (1216x832), where the
+     canvas sits 1:1; any other frame size scales it down keeping the aspect. */
+  body { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  #loading { position: absolute; color: #6a6a6a; font: 14px monospace; }
+  /* raylib owns GL context creation, so translucent pixels (e.g. shadow
+     blends) survive in the canvas bitmap; the canvas background composites
+     them over black, and relative z-index keeps it above the loading text
+     once frames render. */
+  canvas { display: block; position: relative; z-index: 1; background: #000;
+           max-width: 100%; max-height: 100%; }
+</style>
+</head>
+<body>
+<div id="loading">loading&hellip;</div>
+<canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+<script>
+    var Module = { canvas: document.getElementById('canvas') };
+    (function () {
+        var canvas = document.getElementById('canvas');
+
+        /* itch embeds the game inside a scrolling page; without focus the
+         * arrow keys scroll that page instead of moving the dog.  Browsers
+         * only hand focus to an iframe after a user gesture, so grab it on
+         * load and again on every pointer enter/click. */
+        function grabFocus() {
+            window.focus();
+            canvas.focus();
+        }
+        window.addEventListener('load', grabFocus);
+        window.addEventListener('pointerdown', grabFocus);
+        canvas.addEventListener('mouseenter', grabFocus);
+
+        /* The page scroll default of the movement keys is moot once the
+         * iframe has focus (this document cannot scroll), but keep it off
+         * in case a key lands here while focus is still settling. */
+        var GAME_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
+        window.addEventListener('keydown', function (e) {
+            if (GAME_KEYS.indexOf(e.key) !== -1) e.preventDefault();
+        });
+
+        /* Pixel-art stays crisp under integer (or exact half) scaling;
+         * every other factor looks better smoothly filtered, so itch's
+         * narrow page column and fullscreen get even pixels instead of
+         * dropouts. */
+        function updateFilter() {
+            var scale = canvas.clientWidth / canvas.width;
+            var nearest = Math.round(scale);
+            var isInteger = Math.abs(scale - nearest) < 0.02;
+            var isHalf = Math.abs(scale * 2 - Math.round(scale * 2)) < 0.02;
+            canvas.style.imageRendering =
+                (isInteger || isHalf) ? 'pixelated' : 'auto';
+        }
+        window.addEventListener('resize', updateFilter);
+        window.addEventListener('load', updateFilter);
+        /* raylib resizes the drawing buffer after load without a window
+         * resize event, so watch the attribute directly. */
+        new MutationObserver(updateFilter)
+            .observe(canvas, { attributes: true, attributeFilter: ['width', 'height'] });
+    })();
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>
