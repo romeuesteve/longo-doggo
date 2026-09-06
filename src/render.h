@@ -47,7 +47,9 @@ typedef struct LongoRender {
     bool sound_loaded[7];
     Sound music;
     bool music_loaded;
-    bool music_playing;
+    /* the sim asked for the looping track at least once; the dispatch
+     * then keeps it playing across rooms */
+    bool music_requested;
     bool audio_ready;
 } LongoRender;
 

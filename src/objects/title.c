@@ -22,11 +22,14 @@ void title_place(void)
 
 void title_tick(const SimInput *input)
 {
-    if (!present || started) return;
-    if (input->pressed_any) {
-        started = true;
-        transition_request_next();
-    }
+    if (!present) return;
+    /* re-request the looping track every tick: the request queued by
+     * title_place() dies in the load tick's events_clear(), and the
+     * render side keeps the music alive from here on */
+    events_sound(SND_PLACEHOLDER, 1);
+    if (started || !input->pressed_any) return;
+    started = true;
+    transition_request_next();
 }
 
 bool title_present(void) { return present; }

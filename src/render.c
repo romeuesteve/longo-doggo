@@ -843,12 +843,15 @@ void longo_render_dispatch_sounds(LongoRender *render, SimWorld *world)
         int snd = ev[i].sound;
         if (snd <= SND_NONE || snd > SND_BARK) continue;
         if (ev[i].loop) {
-            if (render->music_loaded && !render->music_playing) {
-                PlaySound(render->music);
-                render->music_playing = true;
-            }
+            render->music_requested = true;
             continue;
         }
         if (render->sound_loaded[snd]) PlaySound(render->sounds[snd]);
     }
+    /* raylib Sounds play exactly one pass, so the looping track is
+     * restarted whenever it is not playing: that carries it through
+     * room transitions and past a suspended browser audio context */
+    if (render->music_requested && render->music_loaded &&
+        !IsSoundPlaying(render->music))
+        PlaySound(render->music);
 }
