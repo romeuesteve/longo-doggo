@@ -90,6 +90,8 @@ void view_layer(ViewLayer layer); /* selects the push target */
 void view_sort(void);             /* depth-sort every layer */
 
 const ViewItem *view_items(ViewLayer layer, int *count);
+/* sorted draw position i maps to items[view_order_at(layer, i)] */
+int view_order_at(ViewLayer layer, int i);
 
 /* Animation clocks (frames += fps / 60 per tick), one per sprite.
  * Consumers share a clock to stay in sync: the fly flaps on the apple

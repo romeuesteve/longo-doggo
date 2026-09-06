@@ -9,6 +9,9 @@
 typedef struct ViewLayerData {
     ViewItem items[VIEW_MAX_ITEMS];
     int count;
+    /* draw order as indices into items[]; sorting indices keeps the
+     * per-frame sort from memmove-ing the ~250-byte item structs */
+    int order[VIEW_MAX_ITEMS];
 } ViewLayerData;
 
 static ViewLayerData layers[3];
@@ -32,26 +35,39 @@ void view_begin_frame(void)
 
 void view_layer(ViewLayer layer) { current = layer; }
 
+static ViewLayer sort_layer;
+static const ViewItem *sort_items;
+
 static int item_compare(const void *a, const void *b)
 {
-    const ViewItem *ia = a, *ib = b;
-    if (ia->depth != ib->depth) return ib->depth - ia->depth;
+    int ia = *(const int *)a, ib = *(const int *)b;
+    const ViewItem *va = &sort_items[ia], *vb = &sort_items[ib];
+    if (va->depth != vb->depth) return vb->depth - va->depth;
     /* order is the push index, so ties keep push order and qsort is
      * deterministic */
-    return ia->order - ib->order;
+    return va->order - vb->order;
 }
 
 void view_sort(void)
 {
-    for (int l = 0; l < 3; l++)
-        qsort(layers[l].items, (size_t)layers[l].count, sizeof(ViewItem),
-              item_compare);
+    for (int l = 0; l < 3; l++) {
+        int n = layers[l].count;
+        sort_layer = (ViewLayer)l;
+        sort_items = layers[l].items;
+        for (int i = 0; i < n; i++) layers[l].order[i] = i;
+        qsort(layers[l].order, (size_t)n, sizeof(int), item_compare);
+    }
 }
 
 const ViewItem *view_items(ViewLayer layer, int *count)
 {
     *count = layers[layer].count;
     return layers[layer].items;
+}
+
+int view_order_at(ViewLayer layer, int i)
+{
+    return layers[layer].order[i];
 }
 
 float view_sprite_clock(int sprite)

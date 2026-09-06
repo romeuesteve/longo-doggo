@@ -52,14 +52,11 @@ int main(void)
         input.pressed_e = IsKeyPressed(KEY_E);
         input.pressed_r = IsKeyPressed(KEY_R);
 
+        /* any key press starts the game; drain the press queue instead
+         * of probing all 512 key slots */
         input.pressed_any = 0;
-        for (int k = 0; k < 512; k++) {
-            if (IsKeyPressed(k)) {
-                input.pressed_any = 1;
-                break;
-            }
-        }
-        /* any-key starts the game; exit key is disabled */
+        while (GetKeyPressed() != 0) input.pressed_any = 1;
+        /* exit key is disabled; escape does not start the game */
         if (IsKeyPressed(KEY_ESCAPE)) input.pressed_any = 0;
 
         sim_tick(world_ptr(), &input);

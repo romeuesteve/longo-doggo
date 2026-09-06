@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Longo Doggo render backend.
  *
  * Pure replay layer: object scripts push view items through core/view.h;
@@ -7,9 +7,11 @@
  *   - application surface at the 304x208 logical resolution
  *   - global.shadow_surf rebuilt per frame, composited at 0.2 alpha
  *   - GUI surface: the application surface, then GUI items
+ *   - static tile layers (sprTile ground, room Tiles_3) stamped into
+ *     cached surfaces per room and composited as one quad per layer
  *
- * Render targets never nest: the shadow surface, application surface
- * and GUI surface are all filled top-level.
+ * Render targets never nest: every surface is filled top-level, so the
+ * per-room tile cache is rebuilt before the surface passes begin.
  */
 #include "render.h"
 #include "room_tiles.h"
@@ -21,6 +23,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* The sprTile ground and the room's Tiles_3 decoration layer never
+ * change within a room, so they are stamped into cached surfaces on
+ * room change and composited as one quad per layer instead of a few
+ * hundred per-frame tile quads. */
+static struct {
+    RenderTexture2D ground;
+    bool ground_valid;
+    RenderTexture2D decor;
+    const LongoRoomTileMap *decor_for;
+} tile_cache;
 
 /* --------------------------------------------------------------- */
 /* Asset loading                                                     */
@@ -204,6 +217,12 @@ bool longo_render_init(LongoRender *render, const char *asset_root)
     SetTextureFilter(render->app_surface.texture, TEXTURE_FILTER_POINT);
     SetTextureFilter(render->gui_surface.texture, TEXTURE_FILTER_POINT);
     SetTextureFilter(render->shadow_surface.texture, TEXTURE_FILTER_POINT);
+    tile_cache.ground = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
+                                          LONGO_LOGICAL_HEIGHT);
+    tile_cache.decor = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
+                                         LONGO_LOGICAL_HEIGHT);
+    SetTextureFilter(tile_cache.ground.texture, TEXTURE_FILTER_POINT);
+    SetTextureFilter(tile_cache.decor.texture, TEXTURE_FILTER_POINT);
 
     for (int s = 1; s < 32; s++) {
         if (longo_sprite_name(s) != NULL) load_sprite(render, (LongoSprite)s);
@@ -256,6 +275,9 @@ void longo_render_shutdown(LongoRender *render)
     UnloadRenderTexture(render->app_surface);
     UnloadRenderTexture(render->gui_surface);
     UnloadRenderTexture(render->shadow_surface);
+    UnloadRenderTexture(tile_cache.ground);
+    UnloadRenderTexture(tile_cache.decor);
+    memset(&tile_cache, 0, sizeof(tile_cache));
     memset(render, 0, sizeof(*render));
 }
 
@@ -460,7 +482,7 @@ static void draw_text_line(Font font, const char *text, float x, float y,
  * Pass draw=false to only count the wrapped lines. */
 static int wrap_lines(Font font, const char *text, float x, float y,
                       float sep, float width, float size, bool draw,
-                      Color color)
+                      Color color, int *starts, int *lens, int cap)
 {
     if (text == NULL) return 0;
     const char *p = text;
@@ -477,6 +499,7 @@ static int wrap_lines(Font font, const char *text, float x, float y,
         const char *cursor = line;
         while (*cursor != '\0') {
             char out[512];
+            const char *line_start = cursor;
             out[0] = '\0';
             while (*cursor != '\0') {
                 while (*cursor == ' ') cursor++;
@@ -500,6 +523,14 @@ static int wrap_lines(Font font, const char *text, float x, float y,
                 cursor = w_end;
             }
             if (draw) draw_text_line(font, out, x, line_y, size, true, color);
+            if (starts != NULL && lens != NULL && count < cap) {
+                size_t begin = (size_t)(line_start - line);
+                size_t end_span = (size_t)(cursor - line);
+                while (end_span > begin && line[end_span - 1] == ' ')
+                    end_span--;
+                starts[count] = (int)((p - text) + begin);
+                lens[count] = (int)(end_span - begin);
+            }
             line_y += sep;
             count++;
             if (*cursor == ' ') cursor++;
@@ -512,15 +543,59 @@ static int wrap_lines(Font font, const char *text, float x, float y,
 
 /* Centered on (x, y) both ways: the block is offset up by half its
  * height so multi-line text stays inside the bubble. */
+
+/* Dialogue pages stay on screen for many frames while the text is
+ * unchanged, but the wrap is O(words^2) MeasureTextEx probes, so the
+ * measured line segments are cached and reused until the text or
+ * layout changes. */
+#define WRAP_CACHE_LINES 32
+static struct {
+    char text[192];
+    Font font;
+    float width, size;
+    bool valid;
+    int count;
+    int starts[WRAP_CACHE_LINES];
+    int lens[WRAP_CACHE_LINES];
+} wrap_cache;
+
+static bool wrap_cache_matches(Font font, const char *text, float width,
+                               float size)
+{
+    return wrap_cache.valid && wrap_cache.font.texture.id == font.texture.id &&
+           wrap_cache.width == width && wrap_cache.size == size &&
+           strcmp(wrap_cache.text, text) == 0;
+}
+
 static void draw_text_wrapped(Font font, const char *text, float x, float y,
                               float sep, float width, float size, Color color)
 {
-    int count = wrap_lines(font, text, x, 0.0f, sep, width, size, false,
-                           color);
+    if (!wrap_cache_matches(font, text, width, size)) {
+        wrap_cache.valid = false;
+        wrap_cache.count =
+            wrap_lines(font, text, x, 0.0f, sep, width, size, false, color,
+                       wrap_cache.starts, wrap_cache.lens, WRAP_CACHE_LINES);
+        if (wrap_cache.count > 0 && wrap_cache.count <= WRAP_CACHE_LINES) {
+            snprintf(wrap_cache.text, sizeof(wrap_cache.text), "%s", text);
+            wrap_cache.font = font;
+            wrap_cache.width = width;
+            wrap_cache.size = size;
+            wrap_cache.valid = true;
+        }
+    }
+    int count = wrap_cache.count;
     if (count <= 0) return;
     float height = (float)(count - 1) * sep + size;
-    wrap_lines(font, text, x, y - height * 0.5f, sep, width, size, true,
-               color);
+    float line_y = y - height * 0.5f;
+    for (int i = 0; i < count; i++) {
+        char line[512];
+        size_t len = (size_t)wrap_cache.lens[i];
+        if (len >= sizeof(line)) len = sizeof(line) - 1;
+        memcpy(line, text + wrap_cache.starts[i], len);
+        line[len] = '\0';
+        draw_text_line(font, line, x, line_y, size, true, color);
+        line_y += sep;
+    }
 }
 
 /* Present-pass replay of the UI text items (everything except the
@@ -534,7 +609,7 @@ static void draw_text_items_window_scale(LongoRender *render)
         int count;
         const ViewItem *items = view_items((ViewLayer)layer, &count);
         for (int i = 0; i < count; i++) {
-            const ViewItem *it = &items[i];
+            const ViewItem *it = &items[view_order_at((ViewLayer)layer, i)];
             if (it->kind != VIEW_ITEM_TEXT &&
                 it->kind != VIEW_ITEM_TEXT_WRAPPED)
                 continue;
@@ -604,6 +679,37 @@ static Rectangle rect_full(void)
 }
 
 /* --------------------------------------------------------------- */
+/* Static tile layers, pre-rendered per room                          */
+/* --------------------------------------------------------------- */
+static void draw_ground_tiles(LongoRender *render)
+{
+    if (!render->sprite_loaded[LONGO_SPR_TILE]) return;
+    Texture2D tile = render->sprites[LONGO_SPR_TILE];
+    for (int y = 0; y < LONGO_LOGICAL_HEIGHT; y += tile.height)
+        for (int x = 0; x < LONGO_LOGICAL_WIDTH; x += tile.width)
+            DrawTexture(tile, x, y, WHITE);
+}
+
+static void tile_cache_ensure(LongoRender *render,
+                              const LongoRoomTileMap *tiles)
+{
+    if (tile_cache.decor_for != tiles) {
+        BeginTextureMode(tile_cache.decor);
+        ClearBackground(BLANK);
+        if (tiles != NULL) draw_tile_layer(render, &tiles->tiles_3);
+        EndTextureMode();
+        tile_cache.decor_for = tiles;
+    }
+    if (!tile_cache.ground_valid) {
+        BeginTextureMode(tile_cache.ground);
+        ClearBackground(BLACK);
+        draw_ground_tiles(render);
+        EndTextureMode();
+        tile_cache.ground_valid = true;
+    }
+}
+
+/* --------------------------------------------------------------- */
 /* View replay                                                        */
 /* --------------------------------------------------------------- */
 
@@ -666,17 +772,12 @@ static void replay_item(LongoRender *render, const SimWorld *world,
         }
         break;
     case VIEW_ITEM_TILE_LAYERS: {
-        const LongoRoomTileMap *tiles = room_tiles_for(world->room);
-        if (it->frame == 0) {
-            if (render->sprite_loaded[LONGO_SPR_TILE]) {
-                Texture2D tile = render->sprites[LONGO_SPR_TILE];
-                for (int y = 0; y < LONGO_LOGICAL_HEIGHT; y += tile.height)
-                    for (int x = 0; x < LONGO_LOGICAL_WIDTH; x += tile.width)
-                        DrawTexture(tile, x, y, WHITE);
-            }
-        } else if (it->frame == 1 && tiles != NULL) {
-            draw_tile_layer(render, &tiles->tiles_3);
-        }
+        /* tile_cache_ensure() ran top-level before the surface passes;
+         * render targets never nest */
+        const RenderTexture2D *surf =
+            it->frame == 0 ? &tile_cache.ground : &tile_cache.decor;
+        DrawTexturePro(surf->texture, rect_flip(), rect_full(),
+                       (Vector2){ 0, 0 }, 0.0f, WHITE);
         break;
     }
     default:
@@ -690,11 +791,15 @@ static void replay_layer(LongoRender *render, const SimWorld *world,
     int count;
     const ViewItem *items = view_items(layer, &count);
     for (int i = 0; i < count; i++)
-        replay_item(render, world, &items[i]);
+        replay_item(render, world, &items[view_order_at(layer, i)]);
 }
 
 void longo_render_frame(LongoRender *render, const SimWorld *world)
 {
+    /* rebuild the static tile surfaces on room change, outside any
+     * render-target pass */
+    tile_cache_ensure(render, room_tiles_for(world->room));
+
     view_sort();
 
     /* shadow surface from the shadow layer */
