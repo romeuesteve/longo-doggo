@@ -1,0 +1,86 @@
+name: desktop-deploy
+
+# Builds the native Linux and macOS (universal) channels and ships them to
+# itch.io with butler.  Windows and the web build stay local workflows on the
+# development machine.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        # X11 and GL headers for raylib's desktop backend, ALSA for its audio.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev \
+            libxinerama-dev libxi-dev libgl1-mesa-dev libasound2-dev
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage
+        run: |
+          mkdir -p stage
+          cp build/longo_doggo stage/
+          cp -R build/assets stage/assets
+          chmod +x stage/longo_doggo
+      - uses: itchio/setup-butler@v1
+        with:
+          butler-version: latest
+      - name: Push to itch.io
+        run: butler push stage romeuski/longo-doggo:linux
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+
+  mac:
+    strategy:
+      matrix:
+        include:
+          - { runner: macos-13, artifact: mac-x64 }
+          - { runner: macos-14, artifact: mac-arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: build/longo_doggo
+
+  mac-universal:
+    needs: mac
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mac-*
+          path: archs
+      - name: Make universal binary
+        run: |
+          lipo -create archs/mac-x64/longo_doggo archs/mac-arm64/longo_doggo \
+            -output longo_doggo
+          lipo -info longo_doggo
+      - name: Stage
+        run: |
+          mkdir -p stage
+          cp longo_doggo stage/
+          cp -R assets stage/assets
+          chmod +x stage/longo_doggo
+      - uses: itchio/setup-butler@v1
+        with:
+          butler-version: latest
+      - name: Push to itch.io
+        run: butler push stage romeuski/longo-doggo:mac
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
