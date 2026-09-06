@@ -569,13 +569,16 @@ static void draw_text_line(Font font, const char *text, float x, float y,
 }
 
 /* draw_text_ext_transformed() with fa_center: word wrap at `width`,
- * line separation `sep`, at window scale.  Handles embedded newlines. */
-static void draw_text_wrapped(Font font, const char *text, float x, float y,
-                              float sep, float width, float size, Color color)
+ * line separation `sep`, at window scale.  Handles embedded newlines.
+ * Pass draw=false to only count the wrapped lines. */
+static int wrap_lines(Font font, const char *text, float x, float y,
+                      float sep, float width, float size, bool draw,
+                      Color color)
 {
-    if (text == NULL) return;
+    if (text == NULL) return 0;
     const char *p = text;
     float line_y = y;
+    int count = 0;
     while (*p != '\0') {
         char line[512];
         const char *nl = strchr(p, '\n');
@@ -609,13 +612,28 @@ static void draw_text_wrapped(Font font, const char *text, float x, float y,
                 snprintf(out, sizeof(out), "%s", probe);
                 cursor = w_end;
             }
-            draw_text_line(font, out, x, line_y, size, true, color);
+            if (draw) draw_text_line(font, out, x, line_y, size, true, color);
             line_y += sep;
+            count++;
             if (*cursor == ' ') cursor++;
         }
         p += len;
         if (nl != NULL) p++;
     }
+    return count;
+}
+
+/* Centered on (x, y) both ways: the block is offset up by half its
+ * height so multi-line text stays inside the bubble. */
+static void draw_text_wrapped(Font font, const char *text, float x, float y,
+                              float sep, float width, float size, Color color)
+{
+    int count = wrap_lines(font, text, x, 0.0f, sep, width, size, false,
+                           color);
+    if (count <= 0) return;
+    float height = (float)(count - 1) * sep + size;
+    wrap_lines(font, text, x, y - height * 0.5f, sep, width, size, true,
+               color);
 }
 
 /* Present-pass replay of the UI text items (everything except the

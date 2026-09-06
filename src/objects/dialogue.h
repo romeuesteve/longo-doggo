@@ -26,7 +26,6 @@ void dialogue_tick(void); /* reads input through the world */
 bool dialogue_active(void);
 int dialogue_index(void);
 const Dbox *dialogue_box(int index);
-float dialogue_base_scale(void);
 bool dialogue_released(void);
 
 /* View. */

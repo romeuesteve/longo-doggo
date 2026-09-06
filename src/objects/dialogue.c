@@ -14,7 +14,8 @@ typedef struct Dialogue {
     int last;          /* last box index (num) */
     int release_ticks; /* ticks since the final press (-1 = not released) */
     bool gates_play;   /* this room's dialogue pauses the dog */
-    float base_scale;  /* box pop-in target scale (4, or 10 on credits) */
+    float target_x;    /* box pop-in target xscale (4, or 10 on credits) */
+    float target_y;    /* box pop-in target yscale (always 2) */
     Dbox box[DIALOGUE_MAX_BOXES];
 } Dialogue;
 
@@ -66,7 +67,8 @@ void dialogue_start(int room_index)
     dlg.active = true;
     dlg.index = 0;
     dlg.release_ticks = -1;
-    dlg.base_scale = 4;
+    dlg.target_x = 4;
+    dlg.target_y = 2;
 
     if (room_index == SIM_ROOM_TUTORIAL) {
         dlg.last = 6;
@@ -101,7 +103,7 @@ void dialogue_start(int room_index)
     } else if (room_index == SIM_ROOM_CREDITS) {
         dlg.last = 1;
         dlg.gates_play = false;
-        dlg.base_scale = 10;
+        dlg.target_x = 10;
         for (int i = 0; i <= dlg.last; i++) {
             dlg.box[i].x = CREDITS_BOX_X[i];
             dlg.box[i].y = CREDITS_BOX_Y[i];
@@ -142,7 +144,6 @@ const Dbox *dialogue_box(int index)
     return &dlg.box[index];
 }
 
-float dialogue_base_scale(void) { return dlg.base_scale; }
 bool dialogue_released(void) { return dlg.release_ticks >= 0; }
 
 
@@ -156,14 +157,20 @@ void dialogue_view_tick(void)
 {
     if (!dlg.active) return;
     const SimInput *input = &world_ptr()->input;
-    float target = dlg.release_ticks >= 0 ? 0.6f : dlg.base_scale;
+    float target_x, target_y;
+    if (dlg.release_ticks >= 0) {
+        target_x = target_y = 0.6f;
+    } else {
+        target_x = dlg.target_x;
+        target_y = dlg.target_y;
+    }
     bool advance =
         (input->pressed_space || input->pressed_enter || input->pressed_e) &&
         !transition_closing();
     if (advance && dlg.release_ticks < 0)
         v_scale_x = v_scale_y = 0.5f; /* press bounce */
-    v_scale_x += (target - v_scale_x) * 0.15f;
-    v_scale_y += (target - v_scale_y) * 0.15f;
+    v_scale_x += (target_x - v_scale_x) * 0.15f;
+    v_scale_y += (target_y - v_scale_y) * 0.15f;
 }
 
 void dialogue_draw(void)
@@ -184,8 +191,11 @@ void dialogue_draw(void)
     view_nine_patch(1, 0, LONGO_SPR_DIALOGUEBOX, 0, box->x - w * 0.5f,
                     box->y + wave - h * 0.5f, w, h, view_rgb(255, 255, 255),
                     1.0f);
+    /* draw_text_ext_transformed(..., 12, 30 * xscale, image_yscale * 0.3,
+     * ...): the text scale rides the y easing and the wrap width is
+     * 30 * xscale measured at scale 1, i.e. 30 * target_x * scale here */
     float scale = v_scale_y * 0.3f;
-    float width = 30.0f * dlg.base_scale;
+    float width = 30.0f * dlg.target_x * scale;
     view_text_wrapped(0, 1, 1, box->text, box->x + 0.5f, box->y + wave + 0.5f,
                       12.0f, width, scale, view_rgb(255, 196, 101));
     view_text_wrapped(0, 2, 1, box->text, box->x, box->y + wave, 12.0f, width,
