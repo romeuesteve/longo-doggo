@@ -34,11 +34,16 @@ emcmake cmake -S . -B build/web `
 cmake --build build/web --parallel
 ```
 
-This produces `longo_doggo.html` together with its `.js` and `.wasm` files in
-`build/web`. The runtime assets are copied beside the generated shell
-under `build/web/assets/exported-assets/`. Serve that directory over HTTP for
-browser testing; opening the HTML file directly can prevent WebAssembly or asset
+This produces `longo_doggo.html` together with its `.js`, `.wasm`, and
+`.data` files in `build/web`. The runtime assets and the Renogare font are
+packed into `longo_doggo.data` at link time (`--preload-file`), so the game
+loads them from the Emscripten virtual filesystem; no loose asset copy is
+needed beside the HTML shell. Serve that directory over HTTP for browser
+testing; opening the HTML file directly can prevent WebAssembly or asset
 loading in some browsers.
+
+The web target drives the game loop through `emscripten_set_main_loop`, so
+`main.c` compiles the blocking `while` loop only for native platforms.
 
 Use separate build directories for native and web builds. CMake cannot change the
 compiler or platform of an already-configured build tree.

@@ -76,6 +76,8 @@ emcmake cmake -S . -B build/web -DLONGO_DOGGO_PLATFORM=web -DCMAKE_BUILD_TYPE=Re
 cmake --build build/web --parallel
 ```
 
-This emits `longo_doggo.html`, JavaScript, WebAssembly, and copied assets in
-`build/web`. Serve that directory over HTTP for browser testing. See
+This emits `longo_doggo.html` together with its `.js`, `.wasm`, and `.data`
+files in `build/web` — the runtime assets are packed into `longo_doggo.data`
+and load through the Emscripten virtual filesystem. Serve that directory over
+HTTP for browser testing. See
 [`docs/build.md`](docs/build.md) for the expanded platform notes.

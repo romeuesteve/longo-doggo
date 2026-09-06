@@ -59,6 +59,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(raylib)
 
+# raylib's web backend builds inline JS with EM_ASM, which the Emscripten
+# compiler only accepts in GNU C mode (-std=gnu*); the game targets keep
+# strict ISO C99.
+set_property(TARGET raylib PROPERTY C_EXTENSIONS ON)
+
 set(LONGO_DOGGO_SOURCES
     src/main.c
     src/core/world.c
@@ -98,9 +103,20 @@ if(LONGO_DOGGO_BUILD_GAME AND NOT LONGO_DOGGO_MISSING_SOURCES)
     target_link_libraries(longo_doggo PRIVATE raylib)
 
     # Keep a runnable build self-contained: the runtime assets live under
-    # assets/exported-assets and are copied beside the executable.
+    # assets/exported-assets and are copied beside the executable. On web
+    # they are packed into the Emscripten virtual filesystem instead.
     set(LONGO_RUNTIME_ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/assets/exported-assets")
-    if(EXISTS "${LONGO_RUNTIME_ASSETS}")
+    if(LONGO_DOGGO_PLATFORM STREQUAL "web")
+        if(EXISTS "${LONGO_RUNTIME_ASSETS}")
+            target_link_options(longo_doggo PRIVATE
+                "SHELL:--preload-file ${LONGO_RUNTIME_ASSETS}@assets/exported-assets")
+        endif()
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts")
+            target_link_options(longo_doggo PRIVATE
+                "SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts@assets/fonts")
+        endif()
+        target_link_options(longo_doggo PRIVATE "SHELL:-sALLOW_MEMORY_GROWTH=1")
+    elseif(EXISTS "${LONGO_RUNTIME_ASSETS}")
         add_custom_command(TARGET longo_doggo POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
                     "$<TARGET_FILE_DIR:longo_doggo>/assets/exported-assets"
@@ -111,7 +127,7 @@ if(LONGO_DOGGO_BUILD_GAME AND NOT LONGO_DOGGO_MISSING_SOURCES)
     endif()
 
     # The UI font (Renogare, see assets/fonts for its license) is repo-local.
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts")
+    if(LONGO_DOGGO_PLATFORM STREQUAL "native" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts")
         add_custom_command(TARGET longo_doggo POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
                     "$<TARGET_FILE_DIR:longo_doggo>/assets/fonts"
