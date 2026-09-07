@@ -6,14 +6,16 @@
  * item lists:
  *   - application surface at the 304x208 logical resolution
  *   - global.shadow_surf rebuilt per frame, composited at 0.2 alpha
- *   - GUI surface: transparent canvas with the GUI items; the present
- *     pass composites world -> world-layer text -> GUI -> GUI-layer
- *     text, so the stream's depth order is the composition order
+ *   - GUI surface: transparent canvas, refilled per run; the present
+ *     pass composites world -> window-scale text between the gfx runs
+ *     of each layer (segment compositing), so the stream's depth order
+ *     is the composition order — within a layer too
  *   - static tile layers (sprTile ground, room Tiles_3) stamped into
  *     cached surfaces per room and composited as one quad per layer
  *
- * Render targets never nest: every surface is filled top-level, so the
- * per-room tile cache is rebuilt before the surface passes begin.
+ * Render targets never nest: every surface is filled top-level or from
+ * the default framebuffer, so the per-room tile cache is rebuilt before
+ * the surface passes begin.
  *
  * Resource lifecycle: longo_render_init() resolves the asset roots and
  * acquires every resource — render targets, sprite strips, the tile
@@ -26,6 +28,9 @@
 #include "render.h"
 #include "room_tiles.h"
 #include "sprites.h"
+
+/* blend-factor plumbing for the GUI canvas accumulation (rlgl) */
+#include "rlgl.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -672,38 +677,38 @@ static void draw_text_wrapped(LongoRender *render, Font font,
     }
 }
 
-/* Present-pass replay of one layer's UI text items (everything except
- * the pixel digits font), in sorted draw order.  The caller places the
- * call at the layer's composition position: between the world composite
- * and the GUI items for VIEW_WORLD, after them for VIEW_GUI — so text
- * respects the depth order the stream describes instead of floating
- * above the whole frame. */
-static void draw_text_items_window_scale(LongoRender *render, ViewLayer layer)
+/* Is this a present-pass replay item: UI text drawn straight to the
+ * window at window scale?  (The pixel digits font is low-res surface
+ * content and stays with the layer's other gfx items.) */
+static bool is_window_text(const ViewItem *it)
+{
+    return (it->kind == VIEW_ITEM_TEXT ||
+            it->kind == VIEW_ITEM_TEXT_WRAPPED) && it->font_id != 2;
+}
+
+/* Present-pass replay of one layer's UI text item, in the item's sorted
+ * composition position (the segment walk in present_layer_segments
+ * places it between the gfx runs the stream puts around it).  The atlas
+ * is baked at the drawn pixel size (logical 10px * the 4x window scale)
+ * with point filtering, so text is crisp at any window size. */
+static void draw_text_item_window_scale(LongoRender *render,
+                                        const ViewItem *it)
 {
     Font font = text_font(render);
     float rx = text_ratio_x();
     float ry = text_ratio_y();
-    int count;
-    const ViewItem *items = view_items(layer, &count);
-    for (int i = 0; i < count; i++) {
-        const ViewItem *it = &items[view_order_at(layer, i)];
-        if (it->kind != VIEW_ITEM_TEXT &&
-            it->kind != VIEW_ITEM_TEXT_WRAPPED)
-            continue;
-        if (it->font_id == 2) continue; /* in-world digits font */
-        /* the atlas is baked at exactly this size for the default
-         * window scale, so glyphs draw without resampling */
-        float size = LONGO_TEXT_BASE_PX * it->xscale;
-        bool centered = it->font_id != 0;
-        if (it->kind == VIEW_ITEM_TEXT) {
-            draw_text_line(font, it->text, it->x * rx, it->y * ry, size,
-                           centered, to_ray_color(it->color));
-        } else {
-            draw_text_wrapped(render, font, it->text, it->x * rx,
-                              it->y * ry, it->line_sep * it->xscale * ry,
-                              it->text_width * rx, size,
-                              to_ray_color(it->color));
-        }
+    /* the atlas is baked at exactly this size for the default window
+     * scale, so glyphs draw without resampling */
+    float size = LONGO_TEXT_BASE_PX * it->xscale;
+    bool centered = it->font_id != 0;
+    if (it->kind == VIEW_ITEM_TEXT) {
+        draw_text_line(font, it->text, it->x * rx, it->y * ry, size,
+                       centered, to_ray_color(it->color));
+    } else {
+        draw_text_wrapped(render, font, it->text, it->x * rx,
+                          it->y * ry, it->line_sep * it->xscale * ry,
+                          it->text_width * rx, size,
+                          to_ray_color(it->color));
     }
 }
 
@@ -875,6 +880,87 @@ static void replay_layer(LongoRender *render, ViewLayer layer)
         replay_item(render, &items[view_order_at(layer, i)]);
 }
 
+/* --------------------------------------------------------------- */
+/* Present pass: run/text segments                                    */
+/* --------------------------------------------------------------- */
+
+/* Fill the GUI canvas with one maximal run of a layer's non-text items
+ * and composite it over the present pass.  Inside the target the items
+ * accumulate with separate blend factors (RGB: SRC_ALPHA /
+ * ONE_MINUS_SRC_ALPHA, alpha: ONE / ONE_MINUS_SRC_ALPHA), so RGB stacks
+ * premultiplied while alpha stacks coverage and the canvas ends up
+ * holding (rgb * a, a) — exactly what the premultiplied blit below
+ * needs to blend every pixel exactly once.  Ordinary alpha blending
+ * would square the coverage: a red alpha-128 rect composites as
+ * (128, 0, 191) over blue instead of (128, 0, 127). */
+static void composite_layer_run(LongoRender *render, ViewLayer layer,
+                                int from, int to, Rectangle screen)
+{
+    int count;
+    const ViewItem *items = view_items(layer, &count);
+
+    BeginTextureMode(render->gui_surface);
+    ClearBackground(BLANK);
+    /* factors feed BLEND_CUSTOM_SEPARATE; EndBlendMode restores the
+     * normal mode (the factors stay latched but inert until the mode is
+     * entered again, which always re-sets them) */
+    rlSetBlendFactorsSeparate(RL_SRC_ALPHA, RL_ONE_MINUS_SRC_ALPHA, RL_ONE,
+                              RL_ONE_MINUS_SRC_ALPHA, RL_FUNC_ADD,
+                              RL_FUNC_ADD);
+    BeginBlendMode(BLEND_CUSTOM_SEPARATE);
+    for (int i = from; i < to; i++)
+        replay_item(render, &items[view_order_at(layer, i)]);
+    EndBlendMode();
+    EndTextureMode();
+
+    BeginBlendMode(BLEND_ALPHA_PREMULTIPLY);
+    DrawTexturePro(render->gui_surface.texture, rect_flip(), screen,
+                   (Vector2){ 0, 0 }, 0.0f, WHITE);
+    EndBlendMode();
+}
+
+/* Present one layer as the segments the sorted stream describes: every
+ * maximal run of non-text items is composited through the GUI canvas
+ * (cleared per run, so each pixel blends exactly once) and the text
+ * items that follow it draw at window scale, in depth order — a text
+ * item behind a lower-depth rect stays behind it, and text between two
+ * gfx runs lands between them.
+ *
+ * The world layer's backmost run rides in the opaque application
+ * surface (base_composited: blitted by the caller), so only runs past
+ * the first text item need the canvas again; a layer without text never
+ * touches it, which keeps the common frame at one fill per surface. */
+static void present_layer_segments(LongoRender *render, ViewLayer layer,
+                                   Rectangle screen, bool base_composited)
+{
+    int count;
+    const ViewItem *items = view_items(layer, &count);
+    bool base_pending = base_composited;
+    bool text_drawn = false;
+    int i = 0;
+
+    while (i < count) {
+        int run_end = i;
+        while (run_end < count &&
+               !is_window_text(&items[view_order_at(layer, run_end)]))
+            run_end++;
+        if (run_end > i) {
+            if (base_pending && !text_drawn)
+                base_pending = false; /* backmost run: in the app surface */
+            else
+                composite_layer_run(render, layer, i, run_end, screen);
+        }
+        while (run_end < count &&
+               is_window_text(&items[view_order_at(layer, run_end)])) {
+            draw_text_item_window_scale(render,
+                                        &items[view_order_at(layer, run_end)]);
+            text_drawn = true;
+            run_end++;
+        }
+        i = run_end;
+    }
+}
+
 void longo_render_frame(LongoRender *render, const SimWorld *world)
 {
     /* rebuild the static tile surfaces on room change, outside any
@@ -895,34 +981,21 @@ void longo_render_frame(LongoRender *render, const SimWorld *world)
     replay_layer(render, VIEW_WORLD);
     EndTextureMode();
 
-    /* GUI surface: the GUI items only, on a transparent canvas; the
-     * present pass composites it over the world so GUI items (the level
-     * wipe) also cover world-layer text */
-    BeginTextureMode(render->gui_surface);
-    ClearBackground(BLANK);
-    replay_layer(render, VIEW_GUI);
-    EndTextureMode();
-
     /* present, in the composition order the sorted stream describes:
-     * world composite -> world-layer text -> GUI items -> GUI-layer
-     * text.  Text still rides at window resolution (crisp at any
-     * window size instead of resampled with the pixel surface), but per
-     * layer, so text no longer floats above later composition. */
+     * the world composite, then per layer, window-scale text between
+     * the gfx runs that surround it (segment compositing, see
+     * present_layer_segments).  Text still rides at window resolution
+     * (crisp at any window size instead of resampled with the pixel
+     * surface), and gfx runs re-composited after it keep the stream's
+     * depth order within the layer too. */
     BeginDrawing();
     ClearBackground(BLACK);
     Rectangle screen = { 0.0f, 0.0f, (float)GetScreenWidth(),
                          (float)GetScreenHeight() };
     DrawTexturePro(render->app_surface.texture, rect_flip(), screen,
                    (Vector2){ 0, 0 }, 0.0f, WHITE);
-    draw_text_items_window_scale(render, VIEW_WORLD);
-    /* the GUI canvas holds straight-alpha colours pre-blended onto
-     * transparency (rgb * a, a); premultiplied compositing reproduces
-     * exactly what drawing the items over the world would produce */
-    BeginBlendMode(BLEND_ALPHA_PREMULTIPLY);
-    DrawTexturePro(render->gui_surface.texture, rect_flip(), screen,
-                   (Vector2){ 0, 0 }, 0.0f, WHITE);
-    EndBlendMode();
-    draw_text_items_window_scale(render, VIEW_GUI);
+    present_layer_segments(render, VIEW_WORLD, screen, true);
+    present_layer_segments(render, VIEW_GUI, screen, false);
     EndDrawing();
 }
 

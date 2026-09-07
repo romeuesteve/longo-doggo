@@ -42,9 +42,10 @@ typedef struct LongoRender {
 
     /* the game world, drawn at the 304x208 logical resolution */
     RenderTexture2D app_surface;
-    /* GUI item canvas (transparent background): the present pass
-     * composites it over the world so GUI items such as the level wipe
-     * also cover the window-scale world-layer text */
+    /* GUI item canvas (transparent background): refilled per run of the
+     * present pass's segment walk, so GUI items composite over the world
+     * and over lower window-scale text exactly where the stream's depth
+     * order puts them (the level wipe also covers world-layer text) */
     RenderTexture2D gui_surface;
     /* per-frame shadow silhouette, composited at low alpha */
     RenderTexture2D shadow_surface;
