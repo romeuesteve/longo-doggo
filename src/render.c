@@ -12,6 +12,14 @@
  *
  * Render targets never nest: every surface is filled top-level, so the
  * per-room tile cache is rebuilt before the surface passes begin.
+ *
+ * Resource lifecycle: longo_render_init() resolves the asset roots and
+ * acquires every resource — render targets, sprite strips, the tile
+ * atlas, fonts and sounds — and the LongoRender struct owns them for
+ * its whole lifetime; longo_render_shutdown() releases exactly what
+ * init acquired.  Required assets (targets, sprites, tile atlas, digits
+ * font) fail init loudly after releasing the partial acquisition; audio
+ * is optional and degrades to silence with a warning.
  */
 #include "render.h"
 #include "room_tiles.h"
@@ -23,17 +31,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* The sprTile ground and the room's Tiles_3 decoration layer never
- * change within a room, so they are stamped into cached surfaces on
- * room change and composited as one quad per layer instead of a few
- * hundred per-frame tile quads. */
-static struct {
-    RenderTexture2D ground;
-    bool ground_valid;
-    RenderTexture2D decor;
-    const LongoRoomTileMap *decor_for;
-} tile_cache;
 
 /* --------------------------------------------------------------- */
 /* Asset loading                                                     */
@@ -86,8 +83,37 @@ static void select_asset_root(LongoRender *render, const char *requested)
     }
 }
 
+/* The UI font is repo-local (assets/fonts), not part of exported-assets:
+ * the packaged layout ships it beside the asset root, a repo checkout
+ * keeps it under assets/fonts.  Resolved once here so the lazy font
+ * loader never roots around on its own. */
+static void resolve_ui_font_path(LongoRender *render)
+{
+    snprintf(render->ui_font_path, sizeof(render->ui_font_path),
+             "fonts/renogare.ttf");
+    make_asset_path(render, render->ui_font_path, render->ui_font_path,
+                    sizeof(render->ui_font_path));
+    if (!file_exists(render->ui_font_path))
+        snprintf(render->ui_font_path, sizeof(render->ui_font_path),
+                 "assets/fonts/renogare.ttf");
+}
+
+/* One 304x208 target with point filtering: every surface pass needs the
+ * same kind of canvas (app, gui, shadow and the two cached tile
+ * layers). */
+static RenderTexture2D load_logical_target(void)
+{
+    RenderTexture2D target =
+        LoadRenderTexture(LONGO_LOGICAL_WIDTH, LONGO_LOGICAL_HEIGHT);
+    if (target.id != 0)
+        SetTextureFilter(target.texture, TEXTURE_FILTER_POINT);
+    return target;
+}
+
 /* Load every animation frame of one sprite into a horizontal strip so a
- * frame index maps to a source rectangle. */
+ * frame index maps to a source rectangle.  Sprite frames are required
+ * assets: a missing file or frame returns failure and init aborts,
+ * naming the sprite — a silent skip here drew blank slots forever. */
 static bool load_sprite(LongoRender *render, LongoSprite sprite)
 {
     const char *name = longo_sprite_name(sprite);
@@ -97,6 +123,7 @@ static bool load_sprite(LongoRender *render, LongoSprite sprite)
     Image strip;
     Texture2D tex;
     int fw, fh;
+    bool ok = false;
 
     if (sprite == LONGO_SPR_NONE || name == NULL || frames <= 0) return false;
     snprintf(path, sizeof(path), "sprites/%s/%s_0.png", name, name);
@@ -114,9 +141,9 @@ static bool load_sprite(LongoRender *render, LongoSprite sprite)
         char fpath[1024];
         snprintf(fpath, sizeof(fpath), "sprites/%s/%s_%d.png", name, name, i);
         make_asset_path(render, fpath, fpath, sizeof(fpath));
-        if (!file_exists(fpath)) break;
+        if (!file_exists(fpath)) goto done; /* required frame missing */
         frame_img = LoadImage(fpath);
-        if (frame_img.data == NULL) break;
+        if (frame_img.data == NULL) goto done;
         ImageDraw(&strip, frame_img,
                   (Rectangle){ 0, 0, (float)frame_img.width,
                                (float)frame_img.height },
@@ -126,18 +153,23 @@ static bool load_sprite(LongoRender *render, LongoSprite sprite)
         UnloadImage(frame_img);
     }
     tex = LoadTextureFromImage(strip);
+    if (tex.id != 0) {
+        SetTextureFilter(tex, TEXTURE_FILTER_POINT);
+        render->sprites[sprite] = tex;
+        render->sprite_loaded[sprite] = true;
+        ok = true;
+    }
+done:
     UnloadImage(strip);
-    SetTextureFilter(tex, TEXTURE_FILTER_POINT);
-    render->sprites[sprite] = tex;
-    render->sprite_loaded[sprite] = tex.id != 0;
-    return render->sprite_loaded[sprite];
+    return ok;
 }
 
 /* The pixelated digits font, used only for the in-world house counter
  * (font_id 2), which always draws a plain "%d".  The ten digit cells are
  * the exported glyphs_FontDigits.csv metrics (5x13 glyphs, fixed 6px
- * advance); no CSV parsing needed. */
-static void load_digits_font(LongoRender *render)
+ * advance); no CSV parsing needed.  Required: without it the house
+ * counter would silently vanish. */
+static bool load_digits_font(LongoRender *render)
 {
     static const struct {
         Rectangle source;
@@ -154,15 +186,16 @@ static void load_digits_font(LongoRender *render)
 
     snprintf(path, sizeof(path), "fonts/FontDigits.png");
     make_asset_path(render, path, path, sizeof(path));
-    if (!file_exists(path)) return;
+    if (!file_exists(path)) return false;
     font->texture = LoadTexture(path);
-    if (font->texture.id == 0) return;
+    if (font->texture.id == 0) return false;
     SetTextureFilter(font->texture, TEXTURE_FILTER_POINT);
     for (int i = 0; i < 10; i++) {
         font->glyph[i].source = digits[i].source;
         font->glyph[i].offset = digits[i].offset;
     }
     font->loaded = true;
+    return true;
 }
 
 /* Centered on (x, y): the counter text is always a "%d" number. */
@@ -187,13 +220,20 @@ static void draw_digits_text(const LongoDigitsFont *font, const char *text,
     }
 }
 
+/* Audio is optional: without a device (or a file) the game runs silent
+ * instead of failing, so only a warning marks the gap. */
 static Sound load_sound_relative(const LongoRender *render, const char *file,
                                  bool *loaded)
 {
     char path[1024];
     snprintf(path, sizeof(path), "audio/audiogroup_default/%s", file);
     make_asset_path(render, path, path, sizeof(path));
-    if (!file_exists(path) || !render->audio_ready) {
+    if (!render->audio_ready) {
+        if (loaded) *loaded = false;
+        return (Sound){ 0 };
+    }
+    if (!file_exists(path)) {
+        TraceLog(LOG_WARNING, "render: audio file missing: %s", path);
         if (loaded) *loaded = false;
         return (Sound){ 0 };
     }
@@ -206,43 +246,70 @@ bool longo_render_init(LongoRender *render, const char *asset_root)
 {
     if (render == NULL) return false;
     memset(render, 0, sizeof(*render));
+
+    /* the one place asset roots are resolved: packaged
+     * (assets/exported-assets), local and requested layouts all land
+     * here, and every loader below reads the resolved paths */
     select_asset_root(render, asset_root);
+    resolve_ui_font_path(render);
 
-    render->app_surface = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
-                                            LONGO_LOGICAL_HEIGHT);
-    render->gui_surface = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
-                                            LONGO_LOGICAL_HEIGHT);
-    render->shadow_surface = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
-                                               LONGO_LOGICAL_HEIGHT);
-    SetTextureFilter(render->app_surface.texture, TEXTURE_FILTER_POINT);
-    SetTextureFilter(render->gui_surface.texture, TEXTURE_FILTER_POINT);
-    SetTextureFilter(render->shadow_surface.texture, TEXTURE_FILTER_POINT);
-    tile_cache.ground = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
-                                          LONGO_LOGICAL_HEIGHT);
-    tile_cache.decor = LoadRenderTexture(LONGO_LOGICAL_WIDTH,
-                                         LONGO_LOGICAL_HEIGHT);
-    SetTextureFilter(tile_cache.ground.texture, TEXTURE_FILTER_POINT);
-    SetTextureFilter(tile_cache.decor.texture, TEXTURE_FILTER_POINT);
-
-    for (int s = 1; s < 32; s++) {
-        if (longo_sprite_name(s) != NULL) load_sprite(render, (LongoSprite)s);
+    /* every surface pass needs all five targets */
+    render->app_surface = load_logical_target();
+    render->gui_surface = load_logical_target();
+    render->shadow_surface = load_logical_target();
+    render->tile_cache.ground = load_logical_target();
+    render->tile_cache.decor = load_logical_target();
+    if (render->app_surface.id == 0 || render->gui_surface.id == 0 ||
+        render->shadow_surface.id == 0 ||
+        render->tile_cache.ground.id == 0 ||
+        render->tile_cache.decor.id == 0) {
+        TraceLog(LOG_ERROR, "render: render target allocation failed");
+        longo_render_shutdown(render);
+        return false;
     }
 
+    /* sprites: required, every frame of every entry in the sprite
+     * table (entries without a name are unused slots) */
+    for (int s = 1; s < 32; s++) {
+        if (longo_sprite_name(s) == NULL) continue;
+        if (!load_sprite(render, (LongoSprite)s)) {
+            TraceLog(LOG_ERROR, "render: missing sprite frames for %s",
+                     longo_sprite_name(s));
+            longo_render_shutdown(render);
+            return false;
+        }
+    }
+
+    /* tile atlas: required (the Tiles_3 decoration layer draws from it) */
     {
         char path[1024];
         snprintf(path, sizeof(path), "backgrounds/TileSet1.png");
         make_asset_path(render, path, path, sizeof(path));
-        if (file_exists(path)) {
-            render->tileset1 = LoadTexture(path);
-            SetTextureFilter(render->tileset1, TEXTURE_FILTER_POINT);
-            render->tileset1_loaded = render->tileset1.id != 0;
+        if (file_exists(path)) render->tileset1 = LoadTexture(path);
+        render->tileset1_loaded = render->tileset1.id != 0;
+        if (!render->tileset1_loaded) {
+            TraceLog(LOG_ERROR, "render: missing or unreadable %s", path);
+            longo_render_shutdown(render);
+            return false;
         }
+        SetTextureFilter(render->tileset1, TEXTURE_FILTER_POINT);
     }
 
-    load_digits_font(render);
+    /* pixel digits font: required (the house counter draws from it) */
+    if (!load_digits_font(render)) {
+        TraceLog(LOG_ERROR, "render: missing fonts/FontDigits.png");
+        longo_render_shutdown(render);
+        return false;
+    }
 
+    /* the UI font stays lazy (first text draw) and optional: its
+     * GetFontDefault fallback keeps the game readable without the
+     * repo-local Renogare file */
     if (!IsAudioDeviceReady()) InitAudioDevice();
     render->audio_ready = IsAudioDeviceReady();
+    if (!render->audio_ready)
+        TraceLog(LOG_WARNING,
+                 "render: no audio device; sounds are disabled");
     render->sounds[SND_BARK] = load_sound_relative(render, "snd_bark.wav",
         &render->sound_loaded[SND_BARK]);
     render->sounds[SND_BUTTON] = load_sound_relative(render,
@@ -257,27 +324,35 @@ bool longo_render_init(LongoRender *render, const char *asset_root)
         "snd_wrong.wav", &render->sound_loaded[SND_WRONG]);
     render->music = load_sound_relative(render, "snd_placeholder.wav",
                                         &render->music_loaded);
-    return render->app_surface.id != 0;
+    return true;
 }
 
 void longo_render_shutdown(LongoRender *render)
 {
     if (render == NULL) return;
+    /* every release is guarded by the flags init set, so this is safe
+     * on a partially initialised struct (the init failure paths call
+     * it) and idempotent on an already-shut-down one */
     for (int s = 0; s < 32; s++) {
         if (render->sprite_loaded[s]) UnloadTexture(render->sprites[s]);
     }
     if (render->tileset1_loaded) UnloadTexture(render->tileset1);
     if (render->font_digits.loaded) UnloadTexture(render->font_digits.texture);
+    if (render->ui_font_owned) UnloadFont(render->ui_font);
     for (int s = 0; s < 7; s++) {
         if (render->sound_loaded[s]) UnloadSound(render->sounds[s]);
     }
     if (render->music_loaded) UnloadSound(render->music);
-    UnloadRenderTexture(render->app_surface);
-    UnloadRenderTexture(render->gui_surface);
-    UnloadRenderTexture(render->shadow_surface);
-    UnloadRenderTexture(tile_cache.ground);
-    UnloadRenderTexture(tile_cache.decor);
-    memset(&tile_cache, 0, sizeof(tile_cache));
+    if (render->app_surface.id != 0)
+        UnloadRenderTexture(render->app_surface);
+    if (render->gui_surface.id != 0)
+        UnloadRenderTexture(render->gui_surface);
+    if (render->shadow_surface.id != 0)
+        UnloadRenderTexture(render->shadow_surface);
+    if (render->tile_cache.ground.id != 0)
+        UnloadRenderTexture(render->tile_cache.ground);
+    if (render->tile_cache.decor.id != 0)
+        UnloadRenderTexture(render->tile_cache.decor);
     memset(render, 0, sizeof(*render));
 }
 
@@ -435,25 +510,31 @@ static void draw_line_width_color(Vector2 a, Vector2 b, float width, Color c1,
 
 #define LONGO_TEXT_BASE_PX (10.0f * (float)LONGO_WINDOW_SCALE)
 
+/* The UI font loads on first use from the path init resolved
+ * (ui_font_path); it lives in the struct, so shutdown unloads it.  When
+ * the file is absent the default font keeps the game readable — the
+ * substitution is optional, the game is not. */
 static Font text_font(LongoRender *render)
 {
-    static Font ui_font;
-    static bool initialised;
-    if (!initialised) {
-        initialised = true;
-        char path[1024];
-        snprintf(path, sizeof(path), "fonts/renogare.ttf");
-        make_asset_path(render, path, path, sizeof(path));
-        if (!file_exists(path)) {
-            snprintf(path, sizeof(path), "assets/fonts/renogare.ttf");
+    if (!render->ui_font_ready) {
+        render->ui_font_ready = true;
+        if (file_exists(render->ui_font_path))
+            render->ui_font = LoadFontEx(render->ui_font_path,
+                                         (int)LONGO_TEXT_BASE_PX, NULL, 0);
+        render->ui_font_owned = render->ui_font.texture.id != 0;
+        if (render->ui_font_owned) {
+            /* the atlas is baked at exactly the drawn pixel size, so
+             * glyphs draw without resampling */
+            SetTextureFilter(render->ui_font.texture,
+                             TEXTURE_FILTER_POINT);
+        } else {
+            TraceLog(LOG_WARNING,
+                     "render: UI font not found (%s); using the default "
+                     "font", render->ui_font_path);
+            render->ui_font = GetFontDefault();
         }
-        ui_font = file_exists(path)
-                      ? LoadFontEx(path, (int)LONGO_TEXT_BASE_PX, NULL, 0)
-                      : GetFontDefault();
-        if (ui_font.texture.id != 0 && ui_font.glyphCount > 0)
-            SetTextureFilter(ui_font.texture, TEXTURE_FILTER_POINT);
     }
-    return ui_font;
+    return render->ui_font;
 }
 
 static float text_ratio_y(void)
@@ -546,52 +627,45 @@ static int wrap_lines(Font font, const char *text, float x, float y,
 
 /* Dialogue pages stay on screen for many frames while the text is
  * unchanged, but the wrap is O(words^2) MeasureTextEx probes, so the
- * measured line segments are cached and reused until the text or
- * layout changes. */
-#define WRAP_CACHE_LINES 32
-static struct {
-    char text[192];
-    Font font;
-    float width, size;
-    bool valid;
-    int count;
-    int starts[WRAP_CACHE_LINES];
-    int lens[WRAP_CACHE_LINES];
-} wrap_cache;
-
-static bool wrap_cache_matches(Font font, const char *text, float width,
-                               float size)
+ * measured line segments are cached (render->wrap_cache) and reused
+ * until the text or layout changes. */
+static bool wrap_cache_matches(const LongoRender *render, Font font,
+                               const char *text, float width, float size)
 {
-    return wrap_cache.valid && wrap_cache.font.texture.id == font.texture.id &&
-           wrap_cache.width == width && wrap_cache.size == size &&
-           strcmp(wrap_cache.text, text) == 0;
+    const struct LongoWrapCache *cache = &render->wrap_cache;
+    return cache->valid &&
+           cache->font.texture.id == font.texture.id &&
+           cache->width == width && cache->size == size &&
+           strcmp(cache->text, text) == 0;
 }
 
-static void draw_text_wrapped(Font font, const char *text, float x, float y,
-                              float sep, float width, float size, Color color)
+static void draw_text_wrapped(LongoRender *render, Font font,
+                              const char *text, float x, float y, float sep,
+                              float width, float size, Color color)
 {
-    if (!wrap_cache_matches(font, text, width, size)) {
-        wrap_cache.valid = false;
-        wrap_cache.count =
-            wrap_lines(font, text, x, 0.0f, sep, width, size, false, color,
-                       wrap_cache.starts, wrap_cache.lens, WRAP_CACHE_LINES);
-        if (wrap_cache.count > 0 && wrap_cache.count <= WRAP_CACHE_LINES) {
-            snprintf(wrap_cache.text, sizeof(wrap_cache.text), "%s", text);
-            wrap_cache.font = font;
-            wrap_cache.width = width;
-            wrap_cache.size = size;
-            wrap_cache.valid = true;
+    struct LongoWrapCache *cache = &render->wrap_cache;
+    if (!wrap_cache_matches(render, font, text, width, size)) {
+        cache->valid = false;
+        cache->count = wrap_lines(font, text, x, 0.0f, sep, width, size,
+                                  false, color, cache->starts, cache->lens,
+                                  LONGO_WRAP_CACHE_LINES);
+        if (cache->count > 0 && cache->count <= LONGO_WRAP_CACHE_LINES) {
+            snprintf(cache->text, sizeof(cache->text), "%s", text);
+            cache->font = font;
+            cache->width = width;
+            cache->size = size;
+            cache->valid = true;
         }
     }
-    int count = wrap_cache.count;
+    int count = cache->count;
     if (count <= 0) return;
     float height = (float)(count - 1) * sep + size;
     float line_y = y - height * 0.5f;
     for (int i = 0; i < count; i++) {
         char line[512];
-        size_t len = (size_t)wrap_cache.lens[i];
+        size_t len = (size_t)cache->lens[i];
         if (len >= sizeof(line)) len = sizeof(line) - 1;
-        memcpy(line, text + wrap_cache.starts[i], len);
+        memcpy(line, text + cache->starts[i], len);
         line[len] = '\0';
         draw_text_line(font, line, x, line_y, size, true, color);
         line_y += sep;
@@ -622,8 +696,8 @@ static void draw_text_items_window_scale(LongoRender *render)
                 draw_text_line(font, it->text, it->x * rx, it->y * ry, size,
                                centered, to_ray_color(it->color));
             } else {
-                draw_text_wrapped(font, it->text, it->x * rx, it->y * ry,
-                                  it->line_sep * it->xscale * ry,
+                draw_text_wrapped(render, font, it->text, it->x * rx,
+                                  it->y * ry, it->line_sep * it->xscale * ry,
                                   it->text_width * rx, size,
                                   to_ray_color(it->color));
             }
@@ -693,19 +767,19 @@ static void draw_ground_tiles(LongoRender *render)
 static void tile_cache_ensure(LongoRender *render,
                               const LongoRoomTileMap *tiles)
 {
-    if (tile_cache.decor_for != tiles) {
-        BeginTextureMode(tile_cache.decor);
+    if (render->tile_cache.decor_for != tiles) {
+        BeginTextureMode(render->tile_cache.decor);
         ClearBackground(BLANK);
         if (tiles != NULL) draw_tile_layer(render, &tiles->tiles_3);
         EndTextureMode();
-        tile_cache.decor_for = tiles;
+        render->tile_cache.decor_for = tiles;
     }
-    if (!tile_cache.ground_valid) {
-        BeginTextureMode(tile_cache.ground);
+    if (!render->tile_cache.ground_valid) {
+        BeginTextureMode(render->tile_cache.ground);
         ClearBackground(BLACK);
         draw_ground_tiles(render);
         EndTextureMode();
-        tile_cache.ground_valid = true;
+        render->tile_cache.ground_valid = true;
     }
 }
 
@@ -774,8 +848,9 @@ static void replay_item(LongoRender *render, const SimWorld *world,
     case VIEW_ITEM_TILE_LAYERS: {
         /* tile_cache_ensure() ran top-level before the surface passes;
          * render targets never nest */
-        const RenderTexture2D *surf =
-            it->frame == 0 ? &tile_cache.ground : &tile_cache.decor;
+        const RenderTexture2D *surf = it->frame == 0
+                                          ? &render->tile_cache.ground
+                                          : &render->tile_cache.decor;
         DrawTexturePro(surf->texture, rect_flip(), rect_full(),
                        (Vector2){ 0, 0 }, 0.0f, WHITE);
         break;
