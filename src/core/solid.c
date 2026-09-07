@@ -32,11 +32,13 @@ void solid_restore(const SolidSnapshot *snap)
 
 void solid_place(uint16_t cell, SolidKind kind, int index)
 {
-    /* A same-kind placement is the same owner refreshing its entry (the
-     * dog re-stamps its whole chain every step, with shifted positional
-     * indices), so the shadow keeps what was under the owner instead of
-     * the owner's own previous stamp. */
-    if (cells[cell].kind != kind) shadow[cell] = cells[cell];
+    /* Head and body stamps belong to one dog, even as their indices shift.
+     * Refreshing that footprint must preserve the ground underneath. */
+    bool was_dog = cells[cell].kind == SOLID_HEAD || cells[cell].kind == SOLID_BODY;
+    bool is_dog = kind == SOLID_HEAD || kind == SOLID_BODY;
+    bool same_owner = (was_dog && is_dog) ||
+                      (cells[cell].kind == kind && cells[cell].index == index);
+    if (!same_owner) shadow[cell] = cells[cell];
     cells[cell].kind = kind;
     cells[cell].index = index;
 }

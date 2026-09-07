@@ -1086,6 +1086,20 @@ static void assert_occupancy_matches_entities(void)
  * map in step. */
 static void test_occupancy_matches_entities(void)
 {
+    /* The head becomes body before the tail leaves the filled hole. */
+    sim_init(42u);
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    solid_reset();
+    dog_reset();
+    hole_reset();
+    hole_place(sim_cell_of(4, 4));
+    hole_fill(0);
+    dog_place(72, 72);
+    for (int step = 0; step < 6; step++) press_dir(90);
+    assert(dog_cx() == 10 && dog_cy() == 4);
+    assert(hole_is_full(0));
+    assert(solid_kind_at(sim_cell_of(4, 4)) == SOLID_HOLE);
+
     for (int room = 0; room < longo_room_play_count(); room++) {
         sim_room_goto(world_ptr(), room);
         tick_idle(2);
