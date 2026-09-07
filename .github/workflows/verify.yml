@@ -33,9 +33,12 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
       - name: Build
-        run: cmake --build build --parallel
+        # --config selects the configuration on multi-config generators
+        # (the Windows default, Visual Studio); single-config ones ignore it
+        run: cmake --build build --config ${{ matrix.config }} --parallel
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        # -C names the configuration ctest must run, matching the build
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
 
   web:
     runs-on: ubuntu-latest
