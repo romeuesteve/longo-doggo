@@ -931,6 +931,186 @@ static void test_door_open_window_solidity(void)
     assert(solid_kind_at(door_cell) == SOLID_EMPTY);
 }
 
+/* ---------------------------------------------------------------- */
+/* Occupancy invariant: the solid map mirrors the live entities.     */
+
+static unsigned char pinned_kind[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
+
+/* Walls, the goal mask and holes never move or die: pin them once per
+ * room load so the checker only rebuilds the movers. */
+static void pin_static_occupancy(void)
+{
+    for (int cy = 0; cy < SIM_MAX_CELLS_H; cy++) {
+        for (int cx = 0; cx < SIM_MAX_CELLS_W; cx++) {
+            uint16_t cell = sim_cell_of(cx, cy);
+            SolidKind kind = solid_kind_at(cell);
+            pinned_kind[cell] =
+                (unsigned char)((kind == SOLID_WALL || kind == SOLID_GOAL ||
+                                 kind == SOLID_HOLE)
+                                    ? kind
+                                    : SOLID_EMPTY);
+        }
+    }
+}
+
+/* Rebuild the expected map from the live entity accessors and compare
+ * it cell by cell: every stamped cell belongs to a live entity and no
+ * live entity cell lacks its stamp.  A box may rest on the dog's
+ * non-solid tail cell, so boxes overlay the dog (the map keeps one
+ * kind per cell; the stamp order matches the sim's). */
+static void assert_occupancy_matches_entities(void)
+{
+    unsigned char expect[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
+    memcpy(expect, pinned_kind, sizeof(expect));
+
+    if (dog_alive()) {
+        expect[sim_cell_of(dog_cx(), dog_cy())] = SOLID_HEAD;
+        for (int i = 0; i < dog_length(); i++)
+            expect[dog_part_cell(i)] = SOLID_BODY;
+    }
+    for (int i = 0; i < box_count(); i++) {
+        if (box_alive(i)) expect[box_cell(i)] = SOLID_BOX;
+    }
+    for (int i = 0; i < DOOR_MAX; i++) {
+        if (door_alive(i)) expect[door_cell(i)] = SOLID_DOOR;
+    }
+
+    for (int cy = 0; cy < SIM_MAX_CELLS_H; cy++) {
+        for (int cx = 0; cx < SIM_MAX_CELLS_W; cx++) {
+            uint16_t cell = sim_cell_of(cx, cy);
+            if (solid_kind_at(cell) != (SolidKind)expect[cell]) {
+                fprintf(stderr, "occupancy: cell (%d,%d) map=%d expected=%d\n",
+                        cx, cy, (int)solid_kind_at(cell), expect[cell]);
+                assert(solid_kind_at(cell) == (SolidKind)expect[cell]);
+            }
+        }
+    }
+}
+
+/* Every shipped room loads with the map exactly mirroring its entities
+ * (the title S-curve must not leave the spawn footprint behind), and
+ * every footprint mutation — box pushes including onto the tail cell,
+ * pear shrink, alive toggles, length changes, door removal — keeps the
+ * map in step. */
+static void test_occupancy_matches_entities(void)
+{
+    for (int room = 0; room < SIM_ROOM_COUNT; room++) {
+        sim_room_goto(world_ptr(), room);
+        tick_idle(2);
+        pin_static_occupancy();
+        if (room == SIM_ROOM_TITLE) {
+            /* regression: the title room's dog spawn is cell (3,4) and
+             * the S-curve restamp must not leave it stamped */
+            assert(solid_kind_at(sim_cell_of(3, 4)) == SOLID_EMPTY);
+            assert(solid_kind_at(sim_cell_of(10, 10)) == SOLID_HEAD);
+        }
+        assert_occupancy_matches_entities();
+    }
+
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+    pin_static_occupancy();
+
+    /* a box pushed into the hole dies: the map keeps the (now filled)
+     * hole and the dog's own footprint, nothing of the box */
+    {
+        int hole = hole_at_cell(15, 10);
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        assert(hole >= 0 && !hole_is_full(hole));
+        assert(box_at_cell(16, 10) == 3); /* box 3 spawns beside the hole */
+        dog_set_length(2);
+        dog_teleport(17, 10);
+        input.pressed_left = 1;
+        tick_with(&input);
+        tick_idle(1);
+        assert(!box_alive(3));
+        assert(hole_is_full(hole));
+        assert_occupancy_matches_entities();
+    }
+
+    /* a push onto the tail cell: the vacated cell keeps the box's
+     * stamp (the tail is not solid, so the box may rest there) */
+    {
+        assert(box_alive(1));
+        dog_set_length(3);
+        dog_teleport(8, 5);
+        press_dir(90); /* head (9,5); tail now at (8,7) */
+        box_set_cell(1, sim_cell_of(8, 7));
+        assert_occupancy_matches_entities();
+        press_dir(90); /* the tail vacates around the resting box */
+        assert(box_index_at(sim_cell_of(8, 7)) == 1);
+        assert(solid_kind_at(sim_cell_of(8, 7)) == SOLID_BOX);
+        assert_occupancy_matches_entities();
+    }
+
+    /* test hooks keep the map exact too */
+    dog_set_length(5);
+    assert_occupancy_matches_entities();
+    dog_set_length(2);
+    assert_occupancy_matches_entities();
+    dog_set_alive(false);
+    assert_occupancy_matches_entities();
+    dog_set_alive(true);
+    assert_occupancy_matches_entities();
+
+    /* a door stays stamped through its open animation and frees its
+     * cell when it poofs (every alive box parked on a button; box 3
+     * died in the hole above) */
+    {
+        int used = 0;
+        for (int b = 0; b < box_count() && used < button_count(); b++) {
+            if (box_alive(b)) box_set_cell(b, button_zone_cell(used++, 0));
+        }
+        assert(used == button_count());
+    }
+    tick_idle(1);
+    assert(door_open(0));
+    assert_occupancy_matches_entities();
+    tick_idle(15);
+    assert(!door_alive(0));
+    assert_occupancy_matches_entities();
+
+    /* a pear shrinks the chain: the removed tail cell frees in the
+     * same operation (the tutorial's open pear at (5,9)) */
+    sim_room_goto(world_ptr(), SIM_ROOM_TUTORIAL);
+    tick_idle(2);
+    pin_static_occupancy();
+    {
+        int pear = -1;
+        int length_before;
+        SimInput input;
+        memset(&input, 0, sizeof(input));
+        for (int i = 0; i < 7; i++) { /* dismiss the tutorial dialogue */
+            input.pressed_space = 1;
+            tick_with(&input);
+            input.pressed_space = 0;
+            tick_idle(1);
+        }
+        tick_idle(DIALOGUE_SHRINK_TICKS + 10);
+        assert(dog_play());
+        /* walk to the pear at (5,9) from the left, so the length-3
+         * chain stays clear of walls, holes and the goal mask */
+        dog_set_length(3);
+        dog_teleport(2, 7);
+        assert_occupancy_matches_entities();
+        for (int i = 0; i < pear_count(); i++) {
+            if (pear_alive(i) && pear_cell(i) == sim_cell_of(5, 9)) pear = i;
+        }
+        assert(pear >= 0);
+        length_before = dog_length();
+        press_dir(90); /* (3,7) */
+        press_dir(90); /* (4,7) */
+        press_dir(90); /* (5,7) */
+        press_dir(0);  /* (5,8) */
+        press_dir(0);  /* onto the pear at (5,9) */
+        assert(dog_cx() == 5 && dog_cy() == 9);
+        assert(dog_length() == length_before - 1);
+        assert(!pear_alive(pear));
+        assert_occupancy_matches_entities();
+    }
+}
+
 /* Registered in CTest with WILL_FAIL: it must exit non-zero in every
  * build configuration.  The side effect inside the assert proves check
  * expressions really evaluate; if -DNDEBUG ever strips them again, the
@@ -963,6 +1143,7 @@ static const Scenario scenarios[] = {
     { "fx_pools_reuse_dead_slots", test_fx_pools_reuse_dead_slots },
     { "undo", test_undo },
     { "door_open_window_solidity", test_door_open_window_solidity },
+    { "occupancy_matches_entities", test_occupancy_matches_entities },
 };
 
 static void run_scenario(const Scenario *s)

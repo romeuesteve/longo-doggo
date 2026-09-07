@@ -45,11 +45,22 @@ static void view_part_snap(int index, uint16_t cell);
 /* Placement                                                           */
 /* ------------------------------------------------------------------ */
 
-static void place_on_solid_map(void)
+/* The dog owns its whole footprint: every placement, move or removal
+ * goes through this pair, so no operation can leave a cell of the old
+ * footprint stamped (a live dog's stamps exist exactly where its head
+ * and chain are right now). */
+static void dog_stamp(void)
 {
     solid_place(head_cell(), SOLID_HEAD, 0);
     for (int i = 0; i < dog.length; i++)
         solid_place(dog.chain[i], SOLID_BODY, i);
+}
+
+static void dog_unstamp(void)
+{
+    solid_clear(head_cell());
+    for (int i = 0; i < dog.length; i++)
+        solid_clear(dog.chain[i]);
 }
 
 void dog_reset(void)
@@ -68,6 +79,7 @@ void dog_restore(const Dog *snap)
 
 void dog_place(float x, float y)
 {
+    if (dog.alive) dog_unstamp();
     dog.alive = true;
     dog.cx = (int)floorf((x - 8.0f) / SIM_CELL);
     dog.cy = (int)floorf((y - 8.0f) / SIM_CELL);
@@ -84,12 +96,13 @@ void dog_place(float x, float y)
         if (i == dog.length - 1) dog.pflag[i] = DOG_PART_LEGS;
     }
     dog.detached_cell = dog.chain[dog.length - 1];
-    place_on_solid_map();
+    dog_stamp();
     view_snap();
 }
 
 /* The title room rearranges the dog into an S-curve and arms its idle
- * bark. */
+ * bark.  The whole footprint moves: the spawn cells are unstamped
+ * before the curve is stamped. */
 void dog_title_arrangement(void)
 {
     /* head first, then the five parts of the S-curve (pixel coords,
@@ -98,13 +111,14 @@ void dog_title_arrangement(void)
         { 10, 10 }, { 10, 9 }, { 9, 9 }, { 8, 9 }, { 8, 10 }, { 9, 10 }
     };
     if (!dog.alive) return;
+    dog_unstamp();
     dog.cx = cells[0][0];
     dog.cy = cells[0][1];
     dog.dir = 0;
     dog.bark_timer = 10;
     for (int i = 0; i < dog.length && i + 1 < 6; i++)
         dog.chain[i] = sim_cell_of(cells[i + 1][0], cells[i + 1][1]);
-    place_on_solid_map();
+    dog_stamp();
     view_snap();
 }
 
@@ -130,16 +144,15 @@ uint16_t dog_detached_cell(void) { return (uint16_t)dog.detached_cell; }
 
 void dog_teleport(int cx, int cy)
 {
-    /* clear old cells, re-place the head with the chain trailing below
-     * like a fresh spawn (test hook) */
-    solid_clear(head_cell());
-    for (int i = 0; i < dog.length; i++) solid_clear(dog.chain[i]);
+    /* move the whole footprint; the chain trails below the head like a
+     * fresh spawn (test hook) */
+    if (dog.alive) dog_unstamp();
     dog.cx = cx;
     dog.cy = cy;
     dog.key_cooldown = 0;
     for (int i = 0; i < dog.length; i++)
         dog.chain[i] = sim_cell_of(cx, cy + 1 + i);
-    place_on_solid_map();
+    if (dog.alive) dog_stamp();
     view_snap();
 }
 
@@ -147,12 +160,11 @@ void dog_set_alive(bool alive)
 {
     if (dog.alive == alive) return;
     if (dog.alive) {
-        solid_clear(head_cell());
-        for (int i = 0; i < dog.length; i++) solid_clear(dog.chain[i]);
+        dog_unstamp();
         dog.alive = false;
     } else {
         dog.alive = true;
-        place_on_solid_map();
+        dog_stamp();
     }
 }
 
@@ -160,8 +172,8 @@ void dog_set_length(int length)
 {
     /* test hook: grow/shrink the chain in place around the current tail */
     if (length < 0 || length > DOG_MAX_CHAIN) return;
+    if (dog.alive) dog_unstamp();
     while (dog.length > length) {
-        solid_clear(dog.chain[dog.length - 1]);
         dog.length--;
         if (dog.length > 0) dog.pflag[dog.length - 1] = DOG_PART_LEGS;
     }
@@ -174,7 +186,7 @@ void dog_set_length(int length)
         view_part_snap(dog.length, dog.chain[dog.length]);
         dog.length++;
     }
-    place_on_solid_map();
+    if (dog.alive) dog_stamp();
 }
 
 /* ------------------------------------------------------------------ */
@@ -193,12 +205,13 @@ static void shift_chain(uint16_t old_head)
     dog.chain[0] = old_head;
     /* re-stamp every part so the map's indices stay in step with the
      * chain (the tail exception probes dog_part_is_solid by index) */
-    place_on_solid_map();
+    dog_stamp();
 }
 
 static void grow_chain(uint16_t at_cell)
 {
     if (dog.length >= DOG_MAX_CHAIN) return;
+    dog_unstamp();
     /* the former tail becomes plain body; the new tail gets legs */
     dog.pflag[dog.length - 1] = DOG_PART_BUTT;
     dog.chain[dog.length] = at_cell;
@@ -207,15 +220,15 @@ static void grow_chain(uint16_t at_cell)
      * view position snaps there */
     view_part_snap(dog.length, at_cell);
     dog.length++;
-    place_on_solid_map();
+    dog_stamp();
 }
 
 static void shrink_chain(void)
 {
-    solid_clear(dog.chain[dog.length - 1]);
+    dog_unstamp();
     dog.length--;
     dog.pflag[dog.length - 1] = DOG_PART_LEGS;
-    place_on_solid_map();
+    dog_stamp();
 }
 
 static void emit_bark(void)
@@ -303,7 +316,6 @@ static bool try_step(int dir)
     dog.cy = tcy;
     dog.dir = dir;
     dog.strain = false;
-    solid_place(target, SOLID_HEAD, 0);
     shift_chain(old_head);
     undo_commit_step();
     return true;

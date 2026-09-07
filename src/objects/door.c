@@ -14,6 +14,18 @@
 static Door doors[DOOR_MAX];
 static int door_cnt;
 
+/* The door owns its one-cell footprint: placement stamps it, removal
+ * frees it, and nothing else touches the cell in between. */
+static void door_stamp(int index)
+{
+    solid_place(doors[index].cell, SOLID_DOOR, index);
+}
+
+static void door_unstamp(int index)
+{
+    solid_clear(doors[index].cell);
+}
+
 void door_reset(void)
 {
     memset(doors, 0, sizeof(doors));
@@ -39,7 +51,7 @@ void door_place(uint16_t cell)
     doors[door_cnt].open = false;
     doors[door_cnt].open_timer = 0;
     doors[door_cnt].cell = cell;
-    solid_place(cell, SOLID_DOOR, door_cnt);
+    door_stamp(door_cnt);
     door_cnt++;
 }
 
@@ -55,7 +67,7 @@ void door_tick(bool all_buttons_pressed)
         if (d->open) {
             if (--d->open_timer <= 0) {
                 d->alive = false;
-                solid_clear(d->cell);
+                door_unstamp(i);
                 events_fx(FX_SMOKE_BURST,
                           (float)(sim_cell_x(d->cell) * SIM_CELL),
                           (float)(sim_cell_y(d->cell) * SIM_CELL), 0, 0, 0, 7,
@@ -73,6 +85,11 @@ bool door_alive(int index)
 bool door_open(int index)
 {
     return index >= 0 && index < door_cnt && doors[index].open;
+}
+uint16_t door_cell(int index)
+{
+    if (index < 0 || index >= door_cnt) return 0;
+    return doors[index].cell;
 }
 
 

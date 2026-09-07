@@ -35,6 +35,7 @@ void door_tick(bool all_buttons_pressed);
 
 bool door_alive(int index);
 bool door_open(int index);
+uint16_t door_cell(int index); /* read-only; 0 when out of range */
 
 /* View. */
 void door_view_tick(void);

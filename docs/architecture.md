@@ -76,9 +76,13 @@ derived from the spawn math, not guessed.
 **The solid map must stay in lockstep with the chain.** Occupancy is
 keyed by cell and the tail exception probes `dog_part_is_solid()` by
 part index, so every chain mutation (step, grow, shrink) re-stamps the
-whole chain with fresh indices. Clearing only the moved cells leaves
-ghost solids (a cell a part vacated stays solid forever) or stale
-indices (the tail resolves to the wrong part's flags).
+whole chain with fresh indices — through the dog script's own
+`dog_stamp()`/`dog_unstamp()` pair, which every dog placement, move and
+removal goes through (box and door own the matching pairs for their
+one-cell footprints). Partial clears leave ghost solids (a cell the
+entity vacated stays solid forever — the title room's S-curve
+rearrangement used to leave the spawn footprint stamped at (3,4)) or
+stale indices (the tail resolves to the wrong part's flags).
 
 **Undo is a verbatim time-machine, captured at the one board-changing
 site.** Every gameplay script owns its snapshot (a state struct plus
@@ -151,7 +155,8 @@ button/door counting, the win transition, retry and room-flow request
 gating (R never hijacks a closing wipe), and undo (steps, box
 pushes into holes, eaten apples, a backward press into the dog's own
 neck, and history dropped on a room load), plus fx pools recycling
-dead slots. View-level asserts inspect the pushed `ViewItem`s
+dead slots and the occupancy invariant (every solid-map cell mirrors a
+live dog part, box or door across all rooms and footprint mutations). View-level asserts inspect the pushed `ViewItem`s
 directly — no renderer needed.
 `tests/playthrough.c` replays a timed input script and prints states
 for manual review.

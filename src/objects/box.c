@@ -14,6 +14,19 @@ static int box_cnt;
 
 static void view_snap(int index); /* placement starts the eased position */
 
+/* The box owns its one-cell footprint: every placement, move or removal
+ * goes through this pair, so a live box is stamped exactly on its cell
+ * and a dead one holds no cell at all. */
+static void box_stamp(int index)
+{
+    solid_place(boxes[index].cell, SOLID_BOX, index);
+}
+
+static void box_unstamp(int index)
+{
+    solid_clear(boxes[index].cell);
+}
+
 void box_reset(void)
 {
     memset(boxes, 0, sizeof(boxes));
@@ -38,7 +51,7 @@ void box_place(uint16_t cell)
     if (box_cnt >= BOX_MAX) return;
     boxes[box_cnt].alive = true;
     boxes[box_cnt].cell = cell;
-    solid_place(cell, SOLID_BOX, box_cnt);
+    box_stamp(box_cnt);
     view_snap(box_cnt);
     box_cnt++;
 }
@@ -46,9 +59,13 @@ void box_place(uint16_t cell)
 void box_set_cell(int index, uint16_t cell)
 {
     if (index < 0 || index >= box_cnt) return;
-    if (boxes[index].alive) solid_clear(boxes[index].cell);
+    if (!boxes[index].alive) {
+        boxes[index].cell = cell;
+        return;
+    }
+    box_unstamp(index);
     boxes[index].cell = cell;
-    if (boxes[index].alive) solid_place(cell, SOLID_BOX, index);
+    box_stamp(index);
 }
 
 int box_count(void) { return box_cnt; }
@@ -80,8 +97,8 @@ bool box_push(int index, uint16_t from_cell, int dir)
     if (hole >= 0 && !hole_is_full(hole)) {
         /* an open hole swallows the box and counts as filled; a filled
          * hole is normal ground and the box lands on top of it */
+        box_unstamp(index);
         boxes[index].alive = false;
-        solid_clear(from_cell);
         hole_fill(hole);
         events_sound(SND_POOF, 0);
         events_fx(FX_BOX_SINK, (float)(sim_cell_x(from_cell) * SIM_CELL),
@@ -92,9 +109,9 @@ bool box_push(int index, uint16_t from_cell, int dir)
 
     if (solid_blocks_box(beyond)) return false;
 
-    solid_clear(from_cell);
+    box_unstamp(index);
     boxes[index].cell = beyond;
-    solid_place(beyond, SOLID_BOX, index);
+    box_stamp(index);
     events_sound(SND_PUSHED, 0);
     return true;
 }
