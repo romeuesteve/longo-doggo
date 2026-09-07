@@ -117,7 +117,7 @@ static void validation_fail(const LongoRoom *room, LongoRoomValidation *out,
     out->violations++;
     if (out->first_violation[0] == '\0')
         snprintf(out->first_violation, sizeof(out->first_violation), "%s: %s",
-                 room->name, what);
+                 room->name ? room->name : "unnamed room", what);
 }
 
 static void validation_fail_capacity(const LongoRoom *room,
@@ -139,6 +139,8 @@ static void validation_fail_capacity(const LongoRoom *room,
 static bool object_cell_in_grid(const LongoRoom *room, float x, float y,
                                 int *out_cx, int *out_cy)
 {
+    if (!(x >= 0 && y >= 0 && x < room->width && y < room->height))
+        return false;
     int cx = (int)floorf(x / SIM_CELL);
     int cy = (int)floorf(y / SIM_CELL);
     if (out_cx) *out_cx = cx;
@@ -159,6 +161,12 @@ bool longo_room_data_validate(const LongoRoom *room, LongoRoomValidation *out)
         snprintf(report.first_violation, sizeof(report.first_violation),
                  "room table is NULL");
         report.violations++;
+        if (out) *out = report;
+        return false;
+    }
+
+    if (room->object_count < 0 || (room->object_count > 0 && !room->objects)) {
+        validation_fail(room, &report, "invalid object table or count");
         if (out) *out = report;
         return false;
     }
@@ -187,6 +195,11 @@ bool longo_room_data_validate(const LongoRoom *room, LongoRoomValidation *out)
 
     for (int i = 0; i < room->object_count; i++) {
         const LongoRoomObject *p = &room->objects[i];
+        if (!isfinite(p->x) || !isfinite(p->y) ||
+            !isfinite(p->xscale) || !isfinite(p->yscale)) {
+            validation_fail(room, &report, "object coordinates and scales must be finite");
+            continue;
+        }
         /* ids outside the LongoObj enum (level_data.h) are malformed
          * data, never content: an unknown id must fail loudly instead of
          * falling through the loader's ignore cases */
@@ -239,18 +252,16 @@ bool longo_room_data_validate(const LongoRoom *room, LongoRoomValidation *out)
                  * with the 16px probe grid must fit the zone pool (the
                  * spawner's zone is a fixed 32x32; a GOAL places no
                  * zone of its own) */
-                float zw = (p->object == LONGO_OBJ_WIN) ? 16.0f * p->xscale
-                                                        : 32.0f;
-                float zh = (p->object == LONGO_OBJ_WIN) ? 16.0f * p->yscale
-                                                        : 32.0f;
-                int max_cells = ((int)(zw / SIM_CELL) + 1) *
-                                ((int)(zh / SIM_CELL) + 1);
+                double zw = (p->object == LONGO_OBJ_WIN) ? 16.0 * p->xscale : 32.0;
+                double zh = (p->object == LONGO_OBJ_WIN) ? 16.0 * p->yscale : 32.0;
+                double max_cells = (floor(fabs(zw) / SIM_CELL) + 1) *
+                                   (floor(fabs(zh) / SIM_CELL) + 1);
                 if (max_cells > HOUSE_WIN_ZONE_MAX) {
                     char detail[160];
                     snprintf(detail, sizeof(detail),
-                             "win zone %dx%d px may span %d cells, capacity "
+                             "win zone %.0fx%.0f px may span %.0f cells, capacity "
                              "%d",
-                             (int)zw, (int)zh, max_cells, HOUSE_WIN_ZONE_MAX);
+                             zw, zh, max_cells, HOUSE_WIN_ZONE_MAX);
                     validation_fail(room, &report, detail);
                 }
             }

@@ -2019,6 +2019,40 @@ static void test_room_validation_rejects_bad_rooms(void)
     assert(longo_room_data_validate(&room, &report));
     assert(report.violations == 0);
 
+    /* Reject malformed table metadata before walking the objects. */
+    room = make_bad_room("rm_negative_count", 304, 208, no_objects, -1);
+    assert_room_rejected(&room);
+    room = make_bad_room("rm_missing_objects", 304, 208, NULL, 1);
+    assert_room_rejected(&room);
+    room = make_bad_room("rm_empty", 304, 208, NULL, 0);
+    assert(longo_room_data_validate(&room, &report));
+    room.name = NULL;
+    room.object_count = 1;
+    assert_room_rejected(&room);
+
+    {
+        LongoRoomObject object = { LONGO_OBJ_APPLE, NAN, 8, 1, 1, 0 };
+        room = make_bad_room("rm_nonfinite", 304, 208, &object, 1);
+        assert_room_rejected(&room);
+        object.x = 8;
+        object.y = INFINITY;
+        assert_room_rejected(&room);
+        object.y = 8;
+        object.xscale = INFINITY;
+        assert_room_rejected(&room);
+        object.xscale = 1;
+        object.yscale = NAN;
+        assert_room_rejected(&room);
+        object.yscale = 1;
+        object.x = 1e30f; /* finite offscreen decoration: no integer cast */
+        assert(longo_room_data_validate(&room, &report));
+        assert(report.offscreen == 1);
+        object.x = 8;
+        object.object = LONGO_OBJ_WIN;
+        object.xscale = 1e30f;
+        assert_room_rejected(&room);
+    }
+
     /* pixel dims that miss whole cells */
     room = make_bad_room("rm_odd", 305, 208, no_objects, 1);
     assert_room_rejected(&room);
