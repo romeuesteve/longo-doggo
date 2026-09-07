@@ -619,10 +619,11 @@ void sim_tick(SimWorld *w, const SimInput *input)
      * over it, so buttons/doors/the house re-derive in the same frame */
     undo_tick(&w->input);
 
-    /* 1. room-control input: R retries the room unless a wipe is
-     * closing (a closing wipe's pending room change wins).  Room-flow
-     * policy lives here with the tick order, not in an object script. */
-    if (w->input.pressed_r && !transition_closing())
+    /* 1. room-control input: R retries the room unless dialogue is on
+     * (its boxes own the advance press) or a wipe is closing (a closing
+     * wipe's pending room change wins).  Room-flow policy lives here
+     * with the tick order, not in an object script. */
+    if (w->input.pressed_r && !dialogue_active() && !transition_closing())
         transition_request_retry();
 
     /* 2. dog step + pickups */

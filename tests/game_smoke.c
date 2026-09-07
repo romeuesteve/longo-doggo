@@ -606,6 +606,50 @@ static void test_retry_reloads_room(void)
                            the dog playable */
 }
 
+/* Dialogue owns input while a box is up: R must neither reload the
+ * room nor advance the dialogue; after the last box is dismissed the
+ * retry key works again. */
+static void test_retry_blocked_by_dialogue(void)
+{
+    SimInput input;
+    memset(&input, 0, sizeof(input));
+
+    sim_init(42u);
+    input.pressed_any = 1;
+    tick_with(&input);
+    tick_idle(200); /* ride the wipe into the tutorial room */
+    assert(dialogue_active());
+    assert(dialogue_index() == 0);
+
+    input.pressed_r = 1;
+    tick_with(&input);
+    tick_idle(200);
+    assert(world.room_index == SIM_ROOM_TUTORIAL);
+    assert(dialogue_active());
+    assert(dialogue_index() == 0); /* untouched, not advanced */
+    assert(!dog_play());
+
+    /* dismiss the tutorial dialogue; R then retries as usual */
+    for (int i = 0; i < 7; i++) {
+        input.pressed_space = 1;
+        tick_with(&input);
+        input.pressed_space = 0;
+        tick_idle(1);
+    }
+    tick_idle(DIALOGUE_SHRINK_TICKS + 10);
+    assert(dog_play());
+    assert(!dialogue_active());
+
+    input.pressed_r = 1;
+    tick_with(&input);
+    tick_idle(200);
+    assert(world.room_index == SIM_ROOM_TUTORIAL);
+    assert(dog_length() == 5);
+    /* the reload restarts the tutorial's dialogue from its first box */
+    assert(dialogue_active());
+    assert(dialogue_index() == 0);
+}
+
 /* Room-flow policy lives in sim_tick(): R requests a retry, a closing
  * wipe's pending room change beats R, and mashing R mid-wipe still
  * queues exactly one reload. */
@@ -1765,9 +1809,11 @@ static void test_draw_composition_order(void)
      * check the sorted draw order: higher depth sorts earlier (drawn
      * further back), so the depth-2 wipe sprites and the depth-1 wipe
      * rect + dialogue panel draw before the depth-0 text — the text's
-     * sorted position is its true position, nothing defers it */
-    input.pressed_r = 1;
-    tick_with(&input);
+     * sorted position is its true position, nothing defers it.  The
+     * request goes through the transition directly: with the dialogue
+     * up, R is gated off (retry_blocked_by_dialogue covers that). */
+    transition_request_retry();
+    tick_idle(1);
     assert(transition_state()->phase == TRANSITION_OPENING);
 
     world_draw();
@@ -2159,6 +2205,7 @@ static const Scenario scenarios[] = {
     { "walls_and_push_rules", test_walls_and_push_rules },
     { "buttons_door_win_retry", test_buttons_door_win_retry },
     { "retry_reloads_room", test_retry_reloads_room },
+    { "retry_blocked_by_dialogue", test_retry_blocked_by_dialogue },
     { "room_flow_requests", test_room_flow_requests },
     { "fx_pools_reuse_dead_slots", test_fx_pools_reuse_dead_slots },
     { "undo", test_undo },
