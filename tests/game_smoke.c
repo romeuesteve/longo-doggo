@@ -20,6 +20,7 @@
 #include "core/view.h"
 #include "room_tiles.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1692,6 +1693,54 @@ static void test_room_catalog_loads_clean(void)
         assert(level1->objects[55].object == LONGO_OBJ_APPLE);
         assert(level1->objects[55].x == 344 && level1->objects[55].y == 120);
     }
+
+    /* offscreen functional placements never load: the loader skips any
+     * cell-based object whose computed cell lands outside the room grid
+     * (the same placements the validator counts as authored
+     * decoration), so an oversized pixel coordinate cannot wrap through
+     * the sim-grid stride onto a playable cell.  rm_level6 ships an
+     * apple at (384,160) whose cell (24,10) used to pack onto playable
+     * cell (0,11). */
+    for (int i = 0; i < longo_room_play_count(); i++) {
+        const LongoRoom *room = longo_room(i);
+        int expect_apples = 0, expect_pears = 0;
+        int alive_apples = 0, alive_pears = 0;
+        for (int j = 0; j < room->object_count; j++) {
+            const LongoRoomObject *p = &room->objects[j];
+            int cx = (int)floorf(p->x / SIM_CELL);
+            int cy = (int)floorf(p->y / SIM_CELL);
+            if (cx < 0 || cy < 0 || cx >= room->width / SIM_CELL ||
+                cy >= room->height / SIM_CELL)
+                continue;
+            if (p->object == LONGO_OBJ_APPLE) expect_apples++;
+            if (p->object == LONGO_OBJ_PEAR) expect_pears++;
+        }
+        sim_room_goto(world_ptr(), i);
+        tick_idle(2);
+        for (int j = 0; j < apple_count(); j++) {
+            if (!apple_alive(j)) continue;
+            alive_apples++;
+            assert(sim_cell_x(apple_cell(j)) < world.cells_w);
+            assert(sim_cell_y(apple_cell(j)) < world.cells_h);
+        }
+        for (int j = 0; j < pear_count(); j++) {
+            if (!pear_alive(j)) continue;
+            alive_pears++;
+            assert(sim_cell_x(pear_cell(j)) < world.cells_w);
+            assert(sim_cell_y(pear_cell(j)) < world.cells_h);
+        }
+        for (int j = 0; j < box_count(); j++) {
+            if (!box_alive(j)) continue;
+            assert(sim_cell_x(box_cell(j)) < world.cells_w);
+            assert(sim_cell_y(box_cell(j)) < world.cells_h);
+        }
+        assert(alive_apples == expect_apples);
+        assert(alive_pears == expect_pears);
+    }
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL6);
+    tick_idle(2);
+    assert(apple_index_at(sim_cell_of(0, 11)) == -1);
+    assert(pear_index_at(sim_cell_of(0, 11)) == -1);
 
     /* play progression follows catalog order and stops after the last
      * shipped room (the editor and levelbase rooms stay unreachable) */

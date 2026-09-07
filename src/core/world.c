@@ -130,6 +130,23 @@ static void validation_fail_capacity(const LongoRoom *room,
     validation_fail(room, out, detail);
 }
 
+/* The one "is this placement's cell inside the room grid" test, shared
+ * by the validator (which counts the placements that miss as authored
+ * offscreen decoration) and the loader (which skips exactly those), so
+ * the two notions can never diverge.  Without the shared bound, a
+ * negative or oversized pixel coordinate reaches the solid map unchecked
+ * or wraps through its SIM_MAX_CELLS_W stride onto a playable cell. */
+static bool object_cell_in_grid(const LongoRoom *room, float x, float y,
+                                int *out_cx, int *out_cy)
+{
+    int cx = (int)floorf(x / SIM_CELL);
+    int cy = (int)floorf(y / SIM_CELL);
+    if (out_cx) *out_cx = cx;
+    if (out_cy) *out_cy = cy;
+    return cx >= 0 && cy >= 0 && cx < room->width / SIM_CELL &&
+           cy < room->height / SIM_CELL;
+}
+
 bool longo_room_validate(int room_index, LongoRoomValidation *out)
 {
     LongoRoomValidation report;
@@ -174,11 +191,10 @@ bool longo_room_validate(int room_index, LongoRoomValidation *out)
         case LONGO_OBJ_GOAL:
         case LONGO_OBJ_WIN: {
             /* functional cell objects: off-grid placements are authored
-             * decoration (the loader leaves them unreachable) and only
-             * the in-grid ones claim pool capacity */
-            int cx = (int)floorf(p->x / SIM_CELL);
-            int cy = (int)floorf(p->y / SIM_CELL);
-            if (cx < 0 || cy < 0 || cx >= cells_w || cy >= cells_h) {
+             * decoration (the loader leaves them unloaded) and only the
+             * in-grid ones claim pool capacity */
+            int cx, cy;
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) {
                 report.offscreen++;
                 break;
             }
@@ -386,6 +402,11 @@ static void load_room(SimWorld *w, int room_index)
 
     for (int i = 0; i < room->object_count; i++) {
         const LongoRoomObject *p = &room->objects[i];
+        /* every cell-based functional placement first resolves its cell
+         * through the same in-grid test the validator counts with: a
+         * placement outside the room grid is authored decoration and is
+         * skipped, never wrapped onto a playable cell */
+        int cx, cy;
         switch (p->object) {
         case LONGO_OBJ_BLOCK:
             /* the wall object is the wall collider; rooms stamp it scaled
@@ -401,31 +422,32 @@ static void load_room(SimWorld *w, int room_index)
             have_dog = 1;
             break;
         case LONGO_OBJ_BOX:
-            box_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                  (int)floorf(p->y / SIM_CELL)));
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
+            box_place(sim_cell_of(cx, cy));
             break;
         case LONGO_OBJ_HOLE:
-            hole_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                   (int)floorf(p->y / SIM_CELL)));
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
+            hole_place(sim_cell_of(cx, cy));
             break;
         case LONGO_OBJ_APPLE:
-            apple_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                    (int)floorf(p->y / SIM_CELL)));
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
+            apple_place(sim_cell_of(cx, cy));
             break;
         case LONGO_OBJ_PEAR:
-            pear_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                    (int)floorf(p->y / SIM_CELL)));
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
+            pear_place(sim_cell_of(cx, cy));
             break;
         case LONGO_OBJ_BUTTON: {
             uint16_t zone[BUTTON_ZONE_MAX];
             int zone_count;
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
             compute_zone(w, zone, &zone_count, p->x, p->y, 16, 16);
             button_place(zone, zone_count);
             break;
         }
         case LONGO_OBJ_DOOR:
-            door_place(sim_cell_of((int)floorf(p->x / SIM_CELL),
-                                   (int)floorf(p->y / SIM_CELL)));
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
+            door_place(sim_cell_of(cx, cy));
             break;
         case LONGO_OBJ_GOAL: {
             /* placed directly (title/tutorial rooms); the goal sprite is
@@ -433,8 +455,10 @@ static void load_room(SimWorld *w, int room_index)
              * the house walls (sprite x 9..54 -> 48px centred on the
              * anchor, from the stored cell down); the roof and eaves
              * overhang stay background so the entrance stays reachable. */
-            float gx = p->x - 24;
-            float gy = p->y - 32;
+            float gx, gy;
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
+            gx = p->x - 24;
+            gy = p->y - 32;
             house_place_goal(sim_cell_of((int)floorf(p->x / SIM_CELL),
                                          (int)floorf((p->y - 32) / SIM_CELL)));
             mark_footprint(w, gx, gy, 48, 32, SOLID_GOAL);
@@ -444,10 +468,12 @@ static void load_room(SimWorld *w, int room_index)
             /* house spawner: goal at (x+8, y+16), win at (x-8, y+16)
              * with xscale 2 (a 32x32 footprint); wall-width mask like the
              * directly placed goal */
-            float gx = p->x + 8;
-            float gy = p->y + 16;
-            float wx = p->x - 8;
-            float wy = p->y + 16;
+            float gx, gy, wx, wy;
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
+            gx = p->x + 8;
+            gy = p->y + 16;
+            wx = p->x - 8;
+            wy = p->y + 16;
             house_place_goal(sim_cell_of((int)floorf(gx / SIM_CELL),
                                          (int)floorf((gy - 32) / SIM_CELL)));
             mark_footprint(w, gx - 24, gy - 32, 48, 32, SOLID_GOAL);
@@ -462,6 +488,7 @@ static void load_room(SimWorld *w, int room_index)
         case LONGO_OBJ_WIN: {
             uint16_t zone[HOUSE_WIN_ZONE_MAX];
             int count;
+            if (!object_cell_in_grid(room, p->x, p->y, &cx, &cy)) break;
             compute_zone(w, zone, &count, p->x, p->y, 16 * p->xscale,
                          16 * p->yscale);
             house_place_win_zone(zone, count);
