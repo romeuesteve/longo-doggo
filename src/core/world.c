@@ -38,6 +38,12 @@ int sim_cell_x(uint16_t cell) { return cell % SIM_MAX_CELLS_W; }
 int sim_cell_y(uint16_t cell) { return cell / SIM_MAX_CELLS_W; }
 uint16_t sim_cell_of(int cx, int cy) { return SIM_CELL_INDEX(cx, cy); }
 
+/* The one SimWorld.  There is no multi-world support: the functions
+ * that take a SimWorld * all receive &game_world (the tick order passes
+ * it along to document data flow), and world_ptr() hands the same
+ * instance to scripts and the front-end.  sim_init() is the single
+ * owner of this instance's lifetime: it is the only place that
+ * reinitializes it from scratch (a NEW GAME). */
 static SimWorld game_world;
 
 SimWorld *world_ptr(void) { return &game_world; }
@@ -127,7 +133,22 @@ static void mark_footprint(SimWorld *w, float bx, float by, float bw,
     }
 }
 
-/* The tutorial dialogue texts. */
+/* A room load (the next room, a retry, or the new-game title load)
+ * resets the room-scoped state only: the solid map, dog, box, hole,
+ * items, house, button, door, title, dialogue, flower, butterfly, fx
+ * pools, the undo history and shadows_present.
+ *
+ * What deliberately survives a room load:
+ *   - the transition wipe (phase + pending action + level label), so
+ *     the wipe keeps running across the mid-wipe room change;
+ *   - the view module's animation clocks (core/view.c statics) keep
+ *     running; only sim_init() restarts them (view_reset);
+ *   - the cosmetic rng streams (fx, butterflies) keep flowing: they are
+ *     per-object by design (see core/rng.h) and only ever feed visuals;
+ *     their particle pools reset here with the objects;
+ *   - w->tick and the gameplay rng stream in w->rng.
+ *
+ * The tutorial dialogue texts. */
 static void load_room(SimWorld *w, int room_index)
 {
     const LongoRoom *room = longo_rooms[room_index];
@@ -391,14 +412,24 @@ void sim_room_goto_next(SimWorld *w)
 
 void sim_room_restart(SimWorld *w) { sim_room_goto(w, w->room_index); }
 
+/* NEW GAME: the one complete reset.  Reinitializes the SimWorld (rng
+ * seed, tick = 1), zeroes the view module's animation clocks
+ * (view_reset: a new game must not inherit the previous session's
+ * frame time), resets the transition wipe and loads the title room
+ * (which resets every room-scoped object, see load_room).  Room loads
+ * and retries go through load_room and reset room-scoped state only. */
 void sim_init(unsigned int seed)
 {
     SimWorld *w = &game_world;
     memset(w, 0, sizeof(*w));
     w->rng = seed ? seed : 0x1234u;
+    /* tick starts at 1 so room_loaded_tick comparisons (load_tick ==
+     * current tick) key off a nonzero value */
     w->tick = 1;
     /* The transition outlives room loads (its object is placed only in
-     * the title room but must keep wiping across rooms). */
+     * the title room but must keep wiping across rooms); a new game
+     * still starts from a clean wipe. */
     transition_reset();
+    view_reset();
     load_room(w, SIM_ROOM_TITLE);
 }

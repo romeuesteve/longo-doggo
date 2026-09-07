@@ -1111,6 +1111,201 @@ static void test_occupancy_matches_entities(void)
     }
 }
 
+/* ---------------------------------------------------------------- */
+/* New-game determinism: sim_init(seed) is the one complete reset.    */
+
+typedef struct ViewStreamSnap {
+    int count;
+    ViewItem items[VIEW_MAX_ITEMS];
+    int order[VIEW_MAX_ITEMS];
+} ViewStreamSnap;
+
+typedef struct EntityCell {
+    int alive;
+    uint16_t cell;
+} EntityCell;
+
+typedef struct NewGameSnapshot {
+    /* SimWorld scalars */
+    long tick, room_loaded_tick;
+    int room_index, cells_w, cells_h, shadows_present;
+    unsigned int rng;
+    /* dog state via accessors */
+    int dog_alive, dog_play, dog_cx, dog_cy, dog_dir, dog_length;
+    int dog_strain;
+    float dog_vx, dog_vy;
+    uint16_t dog_parts[DOG_MAX_CHAIN];
+    uint16_t dog_detached;
+    /* entity readback */
+    int box_cnt;
+    EntityCell box[BOX_MAX];
+    struct {
+        int open;
+        EntityCell e;
+    } door[DOOR_MAX];
+    int apple_cnt, pear_cnt;
+    EntityCell apple[ITEMS_MAX], pear[ITEMS_MAX];
+    int house_alive, house_remain, house_win_alive;
+    uint16_t house_goal;
+    /* the solid map over every cell */
+    unsigned char solid[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
+    /* fx pools */
+    int fx_smoke, fx_popups, fx_barks, fx_sinks;
+    /* the view module's clocks */
+    double view_time;
+    float clocks[32];
+    /* the pushed draw items of one full draw pass */
+    ViewStreamSnap layer[3];
+} NewGameSnapshot;
+
+/* Each snapshot carries three full view layers (~0.8 MB): keep them
+ * off the stack. */
+static NewGameSnapshot snap_a, snap_b;
+
+static void capture_layer(ViewStreamSnap *into, ViewLayer layer)
+{
+    int count = 0;
+    const ViewItem *items = view_items(layer, &count);
+    into->count = count;
+    if (count > 0)
+        memcpy(into->items, items, sizeof(ViewItem) * (size_t)count);
+    for (int i = 0; i < count; i++) into->order[i] = view_order_at(layer, i);
+}
+
+static void capture_new_game_snapshot(NewGameSnapshot *s)
+{
+    memset(s, 0, sizeof(*s));
+    s->tick = world.tick;
+    s->room_loaded_tick = world.room_loaded_tick;
+    s->room_index = world.room_index;
+    s->cells_w = world.cells_w;
+    s->cells_h = world.cells_h;
+    s->shadows_present = world.shadows_present;
+    s->rng = world.rng;
+
+    s->dog_alive = dog_alive();
+    s->dog_play = dog_play();
+    s->dog_cx = dog_cx();
+    s->dog_cy = dog_cy();
+    s->dog_dir = dog_dir();
+    s->dog_length = dog_length();
+    s->dog_strain = dog_strain();
+    s->dog_vx = dog_visual_x();
+    s->dog_vy = dog_visual_y();
+    for (int i = 0; i < dog_length(); i++) s->dog_parts[i] = dog_part_cell(i);
+    s->dog_detached = dog_detached_cell();
+
+    s->box_cnt = box_count();
+    for (int i = 0; i < s->box_cnt; i++) {
+        s->box[i].alive = box_alive(i);
+        s->box[i].cell = box_cell(i);
+    }
+    for (int i = 0; i < DOOR_MAX; i++) {
+        s->door[i].open = door_open(i);
+        s->door[i].e.alive = door_alive(i);
+        s->door[i].e.cell = door_cell(i);
+    }
+    s->apple_cnt = apple_count();
+    for (int i = 0; i < s->apple_cnt; i++) {
+        s->apple[i].alive = apple_alive(i);
+        s->apple[i].cell = apple_cell(i);
+    }
+    s->pear_cnt = pear_count();
+    for (int i = 0; i < s->pear_cnt; i++) {
+        s->pear[i].alive = pear_alive(i);
+        s->pear[i].cell = pear_cell(i);
+    }
+    s->house_alive = house_alive();
+    s->house_remain = house_remain();
+    s->house_win_alive = house_win_alive();
+    s->house_goal = house_goal_cell();
+
+    for (int cy = 0; cy < SIM_MAX_CELLS_H; cy++)
+        for (int cx = 0; cx < SIM_MAX_CELLS_W; cx++)
+            s->solid[sim_cell_of(cx, cy)] =
+                (unsigned char)solid_kind_at(sim_cell_of(cx, cy));
+
+    fx_counts(&s->fx_smoke, &s->fx_popups, &s->fx_barks, &s->fx_sinks);
+
+    /* the animation clocks, then one full read-only draw pass (world_draw
+     * begins the frame and pushes every object's items) */
+    s->view_time = view_time_ms();
+    for (int sp = 0; sp < 32; sp++) s->clocks[sp] = view_sprite_clock(sp);
+    world_draw();
+    capture_layer(&s->layer[0], VIEW_SHADOW);
+    capture_layer(&s->layer[1], VIEW_WORLD);
+    capture_layer(&s->layer[2], VIEW_GUI);
+}
+
+static void assert_new_game_snapshots_equal(const NewGameSnapshot *a,
+                                            const NewGameSnapshot *b)
+{
+    assert(a->tick == b->tick);
+    assert(a->room_loaded_tick == b->room_loaded_tick);
+    assert(a->room_index == b->room_index);
+    assert(a->cells_w == b->cells_w && a->cells_h == b->cells_h);
+    assert(a->shadows_present == b->shadows_present);
+    assert(a->rng == b->rng); /* the gameplay stream advanced in lockstep */
+
+    assert(a->dog_alive == b->dog_alive);
+    assert(a->dog_play == b->dog_play);
+    assert(a->dog_cx == b->dog_cx && a->dog_cy == b->dog_cy);
+    assert(a->dog_dir == b->dog_dir && a->dog_length == b->dog_length);
+    assert(a->dog_strain == b->dog_strain);
+    assert(a->dog_vx == b->dog_vx && a->dog_vy == b->dog_vy);
+    assert(memcmp(a->dog_parts, b->dog_parts, sizeof(a->dog_parts)) == 0);
+    assert(a->dog_detached == b->dog_detached);
+
+    assert(a->box_cnt == b->box_cnt);
+    assert(memcmp(a->box, b->box, sizeof(a->box)) == 0);
+    assert(memcmp(a->door, b->door, sizeof(a->door)) == 0);
+    assert(a->apple_cnt == b->apple_cnt && a->pear_cnt == b->pear_cnt);
+    assert(memcmp(a->apple, b->apple, sizeof(a->apple)) == 0);
+    assert(memcmp(a->pear, b->pear, sizeof(a->pear)) == 0);
+    assert(a->house_alive == b->house_alive);
+    assert(a->house_remain == b->house_remain);
+    assert(a->house_win_alive == b->house_win_alive);
+    assert(a->house_goal == b->house_goal);
+
+    assert(memcmp(a->solid, b->solid, sizeof(a->solid)) == 0);
+
+    assert(a->fx_smoke == b->fx_smoke && a->fx_popups == b->fx_popups);
+    assert(a->fx_barks == b->fx_barks && a->fx_sinks == b->fx_sinks);
+
+    /* the view module's frame time and sprite clocks must restart with
+     * the new game: after the same number of updates they match exactly
+     * (they used to survive sim_init, so the second run drifted) */
+    assert(a->view_time == b->view_time);
+    assert(memcmp(a->clocks, b->clocks, sizeof(a->clocks)) == 0);
+
+    /* and the full pushed draw streams replay identically */
+    for (int l = 0; l < 3; l++) {
+        assert(a->layer[l].count == b->layer[l].count);
+        assert(memcmp(a->layer[l].items, b->layer[l].items,
+                      sizeof(ViewItem) * (size_t)a->layer[l].count) == 0);
+        assert(memcmp(a->layer[l].order, b->layer[l].order,
+                      sizeof(int) * (size_t)a->layer[l].count) == 0);
+    }
+}
+
+static void run_new_game_script(void)
+{
+    start_playable_in_tutorial(); /* sim_init(42u) -> title -> tutorial */
+    press_dir(90);
+    press_dir(90);
+}
+
+static void test_new_game_is_deterministic(void)
+{
+    run_new_game_script();
+    capture_new_game_snapshot(&snap_a);
+
+    run_new_game_script(); /* the identical new game + script, again */
+    capture_new_game_snapshot(&snap_b);
+
+    assert_new_game_snapshots_equal(&snap_a, &snap_b);
+}
+
 /* Registered in CTest with WILL_FAIL: it must exit non-zero in every
  * build configuration.  The side effect inside the assert proves check
  * expressions really evaluate; if -DNDEBUG ever strips them again, the
@@ -1144,6 +1339,7 @@ static const Scenario scenarios[] = {
     { "undo", test_undo },
     { "door_open_window_solidity", test_door_open_window_solidity },
     { "occupancy_matches_entities", test_occupancy_matches_entities },
+    { "new_game_is_deterministic", test_new_game_is_deterministic },
 };
 
 static void run_scenario(const Scenario *s)

@@ -19,6 +19,15 @@ static ViewLayer current = VIEW_WORLD;
 static double time_ms;
 static float sprite_clocks[VIEW_SPRITE_CLOCKS];
 
+/* A NEW GAME (sim_init) restarts the animation clocks: the frame time
+ * and the per-sprite clocks must not leak in from the previous session.
+ * Room loads keep them running on purpose (see load_room). */
+void view_reset(void)
+{
+    time_ms = 0.0;
+    for (int s = 0; s < VIEW_SPRITE_CLOCKS; s++) sprite_clocks[s] = 0.0f;
+}
+
 void view_begin_frame(void)
 {
     layers[VIEW_SHADOW].count = 0;

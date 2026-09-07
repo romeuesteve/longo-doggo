@@ -85,6 +85,7 @@ typedef struct ViewItem {
     float line_sep;   /* line separation for wrapped text */
 } ViewItem;
 
+void view_reset(void);            /* new game: zero the frame time + clocks */
 void view_begin_frame(void);      /* clears all layers, advances time */
 void view_layer(ViewLayer layer); /* selects the push target */
 void view_sort(void);             /* depth-sort every layer */

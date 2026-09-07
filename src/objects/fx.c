@@ -72,6 +72,14 @@ void fx_reset(void)
     sink_cnt = 0;
 }
 
+void fx_counts(int *smoke, int *popups, int *barks, int *sinks)
+{
+    if (smoke) *smoke = smoke_cnt;
+    if (popups) *popups = popup_cnt;
+    if (barks) *barks = bark_cnt;
+    if (sinks) *sinks = sink_cnt;
+}
+
 /* Spawning reuses dead slots, so the counts are high-water marks of
  * simultaneously-alive fx.  The pools used to be append-only: after a
  * few minutes of play every new poof was silently dropped (sinks died

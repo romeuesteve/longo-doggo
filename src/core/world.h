@@ -60,6 +60,11 @@ typedef struct SimWorld {
 } SimWorld;
 
 SimWorld *world_ptr(void);
+/* NEW GAME: the one complete reset.  Reinitializes the SimWorld (rng
+ * seed, tick = 1), zeroes the view module's animation clocks and loads
+ * the title room.  Room loads and retries (sim_room_goto/restart) reset
+ * room-scoped state only; see load_room in core/world.c for the list of
+ * what deliberately survives them. */
 void sim_init(unsigned int seed);
 void sim_room_goto(SimWorld *w, int room_index);
 void sim_room_goto_next(SimWorld *w);
