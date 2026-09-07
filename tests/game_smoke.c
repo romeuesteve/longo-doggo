@@ -2034,6 +2034,24 @@ static void test_room_validation_rejects_bad_rooms(void)
     assert(longo_room_data_validate(&room, &report));
     assert(report.violations == 0);
 
+    /* Validate the origin-adjusted head and the whole initial chain. */
+    {
+        LongoRoomObject spawn = { LONGO_OBJ_DOG, 8, 8, 1, 1, 0 };
+        room = make_bad_room("rm_spawn", 304, 208, &spawn, 1);
+        assert(longo_room_data_validate(&room, &report));
+        spawn.x = 0;
+        assert_room_rejected(&room);
+        spawn.x = 312;
+        assert_room_rejected(&room);
+        spawn.x = 8;
+        spawn.y = 0;
+        assert_room_rejected(&room);
+        spawn.y = 136; /* head fits, but the fifth body part does not */
+        assert_room_rejected(&room);
+        spawn.y = 120;
+        assert(longo_room_data_validate(&room, &report));
+    }
+
     /* two dogs overwrite the single spawn */
     room = make_bad_room("rm_two_dogs", 304, 208, two_dogs, 2);
     assert_room_rejected(&room);

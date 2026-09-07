@@ -22,6 +22,7 @@
 #define DOG_PART_BUTT 0x4
 
 #define DOG_MAX_CHAIN 64
+#define DOG_INITIAL_LENGTH 5
 
 /* The full gameplay state, defined here so the undo history can capture
  * and restore it with a plain struct assignment (core/undo.c). */

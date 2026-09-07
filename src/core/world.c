@@ -271,9 +271,17 @@ bool longo_room_data_validate(const LongoRoom *room, LongoRoomValidation *out)
                 p->x >= (float)room->width || p->y >= (float)room->height)
                 report.offscreen++;
             break;
-        case LONGO_OBJ_DOG:
+        case LONGO_OBJ_DOG: {
+            /* Placement uses an 8px origin and extends the initial body
+             * downward. Check floats before dog_place converts to cells. */
+            float cx = floorf((p->x - 8.0f) / SIM_CELL);
+            float cy = floorf((p->y - 8.0f) / SIM_CELL);
+            if (!isfinite(cx) || !isfinite(cy) || cx < 0 || cy < 0 ||
+                cx >= cells_w || cy + DOG_INITIAL_LENGTH >= cells_h)
+                validation_fail(room, &report, "dog spawn footprint exceeds room grid");
             counts.dogs++;
             break;
+        }
         default:
             /* ids the loader deliberately ignores (its default case
              * mirrors this list): LONGO_OBJ_HIDDEN_BLOCK,

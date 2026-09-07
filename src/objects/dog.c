@@ -85,7 +85,7 @@ void dog_place(float x, float y)
     dog.cy = (int)floorf((y - 8.0f) / SIM_CELL);
     dog.dir = 180; /* facing up, chain trailing below */
     dog.play = true;
-    dog.length = 5;
+    dog.length = DOG_INITIAL_LENGTH;
     dog.strain = false;
     dog.key_cooldown = 0;
     dog.bark_timer = -1;
