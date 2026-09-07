@@ -17,16 +17,17 @@ void title_reset(void)
 void title_place(void)
 {
     present = true;
-    events_sound(SND_PLACEHOLDER, 1); /* the looping music track */
+    /* the looping music track, requested once on entering the title:
+     * the schedule delivers the request before the next update's
+     * events_clear() (main delivers the load-time queue right after
+     * sim_init), and the render side keeps the track alive from its
+     * sticky request from there on */
+    events_sound(SND_PLACEHOLDER, 1);
 }
 
 void title_tick(const SimInput *input)
 {
     if (!present) return;
-    /* re-request the looping track every tick: the request queued by
-     * title_place() dies in the load tick's events_clear(), and the
-     * render side keeps the music alive from here on */
-    events_sound(SND_PLACEHOLDER, 1);
     if (started || !input->pressed_any) return;
     started = true;
     transition_request_next();

@@ -1306,6 +1306,195 @@ static void test_new_game_is_deterministic(void)
     assert_new_game_snapshots_equal(&snap_a, &snap_b);
 }
 
+/* ---------------------------------------------------------------- */
+/* The 60 Hz clock and the event delivery are owned by one schedule.  */
+
+static SoundEvent delivered[EVENTS_MAX_SOUNDS];
+static int delivered_count;
+static int deliver_calls;
+
+static void recording_deliver(void *user)
+{
+    (void)user;
+    delivered_count = events_poll_sounds(delivered);
+    deliver_calls++;
+}
+
+typedef struct ClockSnapshot {
+    long tick;
+    int room_index;
+    int dog_alive, dog_play, dog_cx, dog_cy, dog_dir, dog_length;
+    unsigned int rng;
+    double view_time;
+    ViewStreamSnap layer[3];
+} ClockSnapshot;
+
+/* ~0.8 MB per snapshot: keep the buffers off the stack. */
+static ClockSnapshot clock_a, clock_b;
+
+static void capture_clock_snapshot(ClockSnapshot *s)
+{
+    memset(s, 0, sizeof(*s));
+    s->tick = world.tick;
+    s->room_index = world.room_index;
+    s->dog_alive = dog_alive();
+    s->dog_play = dog_play();
+    s->dog_cx = dog_cx();
+    s->dog_cy = dog_cy();
+    s->dog_dir = dog_dir();
+    s->dog_length = dog_length();
+    s->rng = world.rng;
+    s->view_time = view_time_ms();
+    world_draw();
+    capture_layer(&s->layer[0], VIEW_SHADOW);
+    capture_layer(&s->layer[1], VIEW_WORLD);
+    capture_layer(&s->layer[2], VIEW_GUI);
+}
+
+static void assert_clock_snapshots_equal(const ClockSnapshot *a,
+                                         const ClockSnapshot *b)
+{
+    assert(a->tick == b->tick);
+    assert(a->room_index == b->room_index);
+    assert(a->dog_alive == b->dog_alive && a->dog_play == b->dog_play);
+    assert(a->dog_cx == b->dog_cx && a->dog_cy == b->dog_cy);
+    assert(a->dog_dir == b->dog_dir && a->dog_length == b->dog_length);
+    assert(a->rng == b->rng);
+    assert(a->view_time == b->view_time);
+    for (int l = 0; l < 3; l++) {
+        assert(a->layer[l].count == b->layer[l].count);
+        assert(memcmp(a->layer[l].items, b->layer[l].items,
+                      sizeof(ViewItem) * (size_t)a->layer[l].count) == 0);
+        assert(memcmp(a->layer[l].order, b->layer[l].order,
+                      sizeof(int) * (size_t)a->layer[l].count) == 0);
+    }
+}
+
+/* six spaced steps (right/left alternate), `draws` full draw passes
+ * between consecutive updates */
+static void run_clock_script(int draws)
+{
+    SimInput in;
+    start_playable_in_tutorial();
+    for (int i = 0; i < 6; i++) {
+        memset(&in, 0, sizeof(in));
+        in.pressed_right = (i % 2 == 0);
+        in.pressed_left = (i % 2 == 1);
+        tick_with(&in);
+        tick_idle(1);
+        for (int d = 0; d < draws; d++) world_draw();
+    }
+}
+
+static void test_clock_and_event_delivery(void)
+{
+    /* (a) drawing never advances animation time: extra draw passes
+     * between updates are free, so the same script ends in the same
+     * state with the same pushed items whether it drew 0 or 3 extra
+     * passes per update (the view clock used to advance on draw) */
+    {
+        double t;
+        run_clock_script(0);
+        t = view_time_ms();
+        world_draw();
+        world_draw();
+        world_draw();
+        assert(view_time_ms() == t);
+        capture_clock_snapshot(&clock_a);
+    }
+    run_clock_script(3);
+    capture_clock_snapshot(&clock_b);
+    assert_clock_snapshots_equal(&clock_a, &clock_b);
+
+    /* (b) 60 Hz vs 144 Hz frame schedules: two simulated seconds drive
+     * exactly the same 120 updates through sim_frame and land in the
+     * same state.  The right-press is sampled at the same point in the
+     * update stream (when 60 updates have run) in both schedules, so it
+     * is consumed by the same update and even the eased view floats
+     * carry the identical convergence history. */
+    {
+        long tick0;
+        start_playable_in_tutorial();
+        tick0 = world.tick;
+
+        for (int i = 0; i < 120; i++) { /* a 60 Hz frame schedule */
+            SimInput in;
+            memset(&in, 0, sizeof(in));
+            in.pressed_right = (world.tick - tick0 == 60);
+            sim_frame(SIM_STEP_MS, &in, NULL, NULL);
+        }
+        capture_clock_snapshot(&clock_a);
+        assert(world.tick - tick0 == 120); /* one update per 1/60 s */
+
+        start_playable_in_tutorial(); /* identical setup, 144 Hz frames */
+        tick0 = world.tick;
+        for (int i = 0; i < 289; i++) { /* a 144 Hz frame schedule */
+            SimInput in;
+            memset(&in, 0, sizeof(in));
+            in.pressed_right = (world.tick - tick0 == 60);
+            sim_frame(1000.0 / 144.0, &in, NULL, NULL);
+        }
+        capture_clock_snapshot(&clock_b);
+        assert(world.tick - tick0 == 120); /* 289/144 s = 120 updates */
+        assert_clock_snapshots_equal(&clock_a, &clock_b);
+    }
+
+    /* (c) a press sampled on a zero-update frame is held, then steps
+     * exactly once when the next update runs */
+    {
+        int x0;
+        start_playable_in_tutorial();
+        x0 = dog_cx();
+        {
+            SimInput press;
+            memset(&press, 0, sizeof(press));
+            press.pressed_right = 1;
+            sim_frame(3.0, &press, NULL, NULL); /* 3 ms: no update yet */
+            assert(dog_cx() == x0);
+        }
+        sim_frame(SIM_STEP_MS, NULL, NULL, NULL); /* one update runs */
+        assert(dog_cx() == x0 + 1);
+        for (int i = 0; i < 10; i++)
+            sim_frame(SIM_STEP_MS, NULL, NULL, NULL);
+        assert(dog_cx() == x0 + 1); /* and it stepped exactly once */
+
+        /* a massive stall runs the catch-up cap and drops the backlog;
+         * the next frame resumes with exactly one more update */
+        start_playable_in_tutorial();
+        x0 = dog_cx();
+        {
+            long t0 = world.tick;
+            sim_frame(2000.0, NULL, NULL, NULL); /* 2 s of stall */
+            assert(world.tick - t0 == SIM_MAX_CATCHUP);
+            sim_frame(SIM_STEP_MS, NULL, NULL, NULL);
+            assert(world.tick - t0 == SIM_MAX_CATCHUP + 1);
+        }
+        assert(dog_cx() == x0); /* no held input replayed after the drop */
+    }
+
+    /* (d) an update's events are delivered after that update and are
+     * gone before the next one: a space press barks once, the sound
+     * hook sees exactly that bark, and the next update delivers
+     * nothing (no cross-update leakage) */
+    {
+        int smoke, popups, barks, sinks;
+        SimInput press;
+        start_playable_in_tutorial();
+        deliver_calls = 0;
+        delivered_count = 0;
+        memset(&press, 0, sizeof(press));
+        press.pressed_space = 1;
+        sim_frame(SIM_STEP_MS, &press, recording_deliver, NULL);
+        assert(deliver_calls == 1);
+        assert(delivered_count == 1 && delivered[0].sound == SND_BARK);
+        assert(events_poll_sounds(NULL) == 0); /* the queue was drained */
+        fx_counts(&smoke, &popups, &barks, &sinks);
+        assert(barks == 1); /* the fx event fed that update's view pass */
+        sim_frame(SIM_STEP_MS, NULL, recording_deliver, NULL);
+        assert(deliver_calls == 2 && delivered_count == 0);
+    }
+}
+
 /* Registered in CTest with WILL_FAIL: it must exit non-zero in every
  * build configuration.  The side effect inside the assert proves check
  * expressions really evaluate; if -DNDEBUG ever strips them again, the
@@ -1340,6 +1529,7 @@ static const Scenario scenarios[] = {
     { "door_open_window_solidity", test_door_open_window_solidity },
     { "occupancy_matches_entities", test_occupancy_matches_entities },
     { "new_game_is_deterministic", test_new_game_is_deterministic },
+    { "clock_and_event_delivery", test_clock_and_event_delivery },
 };
 
 static void run_scenario(const Scenario *s)

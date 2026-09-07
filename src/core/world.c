@@ -143,10 +143,11 @@ static void mark_footprint(SimWorld *w, float bx, float by, float bw,
  *     the wipe keeps running across the mid-wipe room change;
  *   - the view module's animation clocks (core/view.c statics) keep
  *     running; only sim_init() restarts them (view_reset);
- *   - the cosmetic rng streams (fx, butterflies) keep flowing: they are
- *     per-object by design (see core/rng.h) and only ever feed visuals;
- *     their particle pools reset here with the objects;
  *   - w->tick and the gameplay rng stream in w->rng.
+ *
+ * The cosmetic rng streams (fx, butterflies) are per-object by design
+ * (see core/rng.h) and reseed with their objects here, so a room load
+ * replays the same cosmetic scatter; they only ever feed visuals.
  *
  * The tutorial dialogue texts. */
 static void load_room(SimWorld *w, int room_index)
@@ -307,6 +308,9 @@ void sim_tick(SimWorld *w, const SimInput *input)
     if (input) w->input = *input;
     else memset(&w->input, 0, sizeof(w->input));
     w->tick++;
+    /* one rules tick is one 60 Hz step: it owns the animation clocks
+     * (view_update), so drawing never advances time */
+    view_update();
     events_clear();
 
     /* 0. undo press: restore the pre-step board; the tick then runs on
@@ -396,6 +400,76 @@ void world_draw(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Fixed-step schedule                                                 */
+/* ------------------------------------------------------------------ */
+
+/* One update = one rules tick (which steps the view clocks) + the view
+ * pass that consumes the tick's fx events + sound delivery.  The
+ * schedule state is front-end scheduling, not game state; sim_init
+ * resets it so a new game starts the clock over. */
+static double sched_acc_ms;
+static SimInput sched_held;
+static int sched_held_valid;
+
+void sim_frame(double dt_ms, const SimInput *input,
+               SimSoundDeliver deliver_sounds, void *user)
+{
+    SimInput no_edges;
+    int updates = 0;
+
+    memset(&no_edges, 0, sizeof(no_edges));
+
+    /* hold newly sampled edges until an update actually runs: on a fast
+     * display many rendered frames run zero updates, and a press
+     * sampled on such a frame must survive until the next one */
+    if (input) {
+        if (sched_held_valid) {
+            /* two samples without an intervening update merge: the
+             * edges are one update wide, so composed edges simply apply
+             * together */
+            sched_held.pressed_right |= input->pressed_right;
+            sched_held.pressed_left |= input->pressed_left;
+            sched_held.pressed_up |= input->pressed_up;
+            sched_held.pressed_down |= input->pressed_down;
+            sched_held.pressed_space |= input->pressed_space;
+            sched_held.pressed_enter |= input->pressed_enter;
+            sched_held.pressed_e |= input->pressed_e;
+            sched_held.pressed_r |= input->pressed_r;
+            sched_held.pressed_undo |= input->pressed_undo;
+            sched_held.pressed_any |= input->pressed_any;
+        } else {
+            sched_held = *input;
+            sched_held_valid = 1;
+        }
+    }
+
+    if (dt_ms < 0.0) dt_ms = 0.0;
+    sched_acc_ms += dt_ms;
+
+    while (sched_acc_ms >= SIM_STEP_MS) {
+        const SimInput *upd_input = sched_held_valid ? &sched_held : NULL;
+
+        sim_tick(world_ptr(), upd_input);
+        sched_held_valid = 0; /* edges are consumed once */
+        /* the view pass consumes this update's fx events and the hook
+         * delivers its sounds — both before the next update's
+         * events_clear(), so nothing accumulates and nothing is
+         * dropped */
+        world_view_tick(upd_input ? upd_input : &no_edges);
+        if (deliver_sounds) deliver_sounds(user);
+
+        sched_acc_ms -= SIM_STEP_MS;
+        updates++;
+        if (updates >= SIM_MAX_CATCHUP) {
+            /* massive stall: drop the backlog and resume at the next
+             * update instead of replaying the whole gap */
+            sched_acc_ms = 0.0;
+            break;
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Room management                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -432,4 +506,7 @@ void sim_init(unsigned int seed)
     transition_reset();
     view_reset();
     load_room(w, SIM_ROOM_TITLE);
+    /* a new game starts the fixed-step schedule over too */
+    sched_acc_ms = 0.0;
+    sched_held_valid = 0;
 }

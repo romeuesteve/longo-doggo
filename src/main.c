@@ -1,11 +1,14 @@
 /*
  * Longo Doggo front-end.
  *
- * Runs the simulation at 60 ticks per second (one tick per vsynced
- * frame) and maps raylib input onto the sim's pressed-edge model.
- * Movement is one cell per physical key press; the front-end does not
- * emulate OS key repeat.  After each tick it advances the presentation
- * and plays the sounds the simulation queued.
+ * Fixed-step orchestrator: every rendered frame samples the input edges
+ * once and hands them to the shared schedule (sim_frame), which runs
+ * zero or more 1/60 s updates — one rules tick plus one view pass per
+ * update, each update's queued sounds delivered before the next update
+ * clears the queues.  Catch-up is capped, so a long stall drops the
+ * backlog and resumes at the next update instead of fast-forwarding.
+ * Drawing happens once per rendered frame and never advances animation
+ * time.  The native loop and the Emscripten loop share longo_frame().
  */
 #include "core/world.h"
 #include "render.h"
@@ -24,13 +27,19 @@ typedef struct LongoFront {
 
 static LongoFront front;
 
+static void deliver_sounds(void *user)
+{
+    longo_render_dispatch_sounds((LongoRender *)user, world_ptr());
+}
+
 static void longo_frame(void)
 {
     SimInput input;
     memset(&input, 0, sizeof(input));
 
     /* movement is edge-triggered: one step per physical press, no
-     * OS key repeat */
+     * OS key repeat.  Edges are sampled once per rendered frame; the
+     * schedule holds them until the first update that actually runs. */
     input.pressed_right = IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D);
     input.pressed_left = IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A);
     input.pressed_down = IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S);
@@ -52,10 +61,13 @@ static void longo_frame(void)
     /* exit key is disabled; escape does not start the game */
     if (IsKeyPressed(KEY_ESCAPE)) input.pressed_any = 0;
 
-    sim_tick(world_ptr(), &input);
-    world_view_tick(&input);
+    /* run 0..SIM_MAX_CATCHUP updates of 1/60 s for the real frame time:
+     * each update's sounds are dispatched before the next update runs */
+    sim_frame((double)GetFrameTime() * 1000.0, &input, deliver_sounds,
+              &front.render);
+
+    /* one read-only draw + present per rendered frame */
     world_draw();
-    longo_render_dispatch_sounds(&front.render, world_ptr());
     longo_render_frame(&front.render, world_ptr());
 }
 
@@ -73,6 +85,9 @@ int main(void)
     }
 
     sim_init((unsigned int)GetRandomValue(0, 0x7fffffff));
+    /* deliver the title room's load-time music request before the first
+     * update's events_clear() wipes the queue (see title_place) */
+    longo_render_dispatch_sounds(&front.render, world_ptr());
 
 #if defined(__EMSCRIPTEN__)
     /* the browser drives the loop through requestAnimationFrame; this

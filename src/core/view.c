@@ -28,11 +28,11 @@ void view_reset(void)
     for (int s = 0; s < VIEW_SPRITE_CLOCKS; s++) sprite_clocks[s] = 0.0f;
 }
 
-void view_begin_frame(void)
+/* One 1/60 s step of the animation clocks.  sim_tick calls this — the
+ * rules tick owns the 60 Hz schedule — so drawing is read-only: any
+ * number of draw passes between updates is free. */
+void view_update(void)
 {
-    layers[VIEW_SHADOW].count = 0;
-    layers[VIEW_WORLD].count = 0;
-    layers[VIEW_GUI].count = 0;
     time_ms += 1000.0 / 60.0;
     /* advance each sprite clock by fps / 60 frames */
     for (int s = 1; s < VIEW_SPRITE_CLOCKS; s++) {
@@ -40,6 +40,14 @@ void view_begin_frame(void)
         if (info != NULL && info->fps > 0)
             sprite_clocks[s] += (float)info->fps / 60.0f;
     }
+}
+
+/* Clears the layers and begins a draw pass.  Never advances time. */
+void view_begin_frame(void)
+{
+    layers[VIEW_SHADOW].count = 0;
+    layers[VIEW_WORLD].count = 0;
+    layers[VIEW_GUI].count = 0;
 }
 
 void view_layer(ViewLayer layer) { current = layer; }

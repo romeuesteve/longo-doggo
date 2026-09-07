@@ -39,6 +39,9 @@ static float f_clamp(float v, float lo, float hi)
 void butterfly_reset(void)
 {
     memset(flies, 0, sizeof(flies));
+    /* the cosmetic stream reseeds with its object, so a room load (and
+     * a new game through it) replays the same drift */
+    bf_rng.state = 0xbee9u;
 }
 
 void butterfly_place(float x, float y)

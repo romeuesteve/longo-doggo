@@ -82,7 +82,8 @@ if(LONGO_DOGGO_BUILD_TESTS AND LONGO_DOGGO_PLATFORM STREQUAL "native")
         undo
         door_open_window_solidity
         occupancy_matches_entities
-        new_game_is_deterministic)
+        new_game_is_deterministic
+        clock_and_event_delivery)
     add_test(NAME smoke_all COMMAND longo_game_smoke)
     foreach(scenario IN LISTS LONGO_SMOKE_SCENARIOS)
         add_test(NAME smoke_${scenario} COMMAND longo_game_smoke ${scenario})

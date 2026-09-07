@@ -70,6 +70,9 @@ void fx_reset(void)
     bark_cnt = 0;
     memset(sinks, 0, sizeof(sinks));
     sink_cnt = 0;
+    /* the cosmetic stream reseeds with its object, so a room load (and
+     * a new game through it) replays the same particle scatter */
+    fx_rng.state = 0x1234u;
 }
 
 void fx_counts(int *smoke, int *popups, int *barks, int *sinks)

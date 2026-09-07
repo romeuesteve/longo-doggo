@@ -70,6 +70,31 @@ void sim_room_goto(SimWorld *w, int room_index);
 void sim_room_goto_next(SimWorld *w);
 void sim_room_restart(SimWorld *w);
 
+/* One update is one 60 Hz step.  sim_frame never runs more than
+ * SIM_MAX_CATCHUP updates per call: a longer stall drops the backlog and
+ * resumes at the next update instead of fast-forwarding. */
+#define SIM_STEP_MS (1000.0 / 60.0)
+#define SIM_MAX_CATCHUP 5
+
+/* Per-update sound delivery: the schedule calls it right after each
+ * update's view pass, so the update's queued sounds reach the audio
+ * device before the next update's events_clear().  May be NULL
+ * (headless). */
+typedef void (*SimSoundDeliver)(void *user);
+
+/* The fixed-step schedule shared by the native loop, the web loop and
+ * the tests: advances the game by dt_ms of real time in SIM_STEP_MS
+ * updates, at most SIM_MAX_CATCHUP per call.  The input's pressed edges
+ * are consumed by the first update that runs after they were sampled; a
+ * call that runs zero updates holds them (catch-up updates run without
+ * edges). */
+void sim_frame(double dt_ms, const SimInput *input,
+               SimSoundDeliver deliver_sounds, void *user);
+
+/* One rules tick = one 1/60 s step.  It owns the 60 Hz schedule: it
+ * steps the view animation clocks (view_update) and clears the event
+ * queues at the top, so whatever a tick queues must be delivered before
+ * the next one (the sim_frame schedule does exactly that). */
 void sim_tick(SimWorld *w, const SimInput *input);
 
 /* View orchestration: easing ticks then draw-item push, in one place. */
