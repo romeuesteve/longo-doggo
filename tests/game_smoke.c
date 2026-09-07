@@ -18,6 +18,7 @@
 #include "core/events.h"
 #include "core/solid.h"
 #include "core/view.h"
+#include "room_tiles.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -994,7 +995,7 @@ static void assert_occupancy_matches_entities(void)
  * map in step. */
 static void test_occupancy_matches_entities(void)
 {
-    for (int room = 0; room < SIM_ROOM_COUNT; room++) {
+    for (int room = 0; room < longo_room_play_count(); room++) {
         sim_room_goto(world_ptr(), room);
         tick_idle(2);
         pin_static_occupancy();
@@ -1610,6 +1611,120 @@ static void test_draw_composition_order(void)
     assert(count_shadow_composites() == 1);
 }
 
+/* ---------------------------------------------------------------- */
+/* One catalog, one loading policy: the room tables in level_data.c    */
+/* are the only definition, every shipped room validates clean, and    */
+/* play order / tile maps / dialogue all key off that catalog.         */
+
+static void test_room_catalog_loads_clean(void)
+{
+    /* every authored room passes the loader's validation: dimensions
+     * fit the sim grid exactly and no entity pool overflows (offscreen
+     * placements are whitelisted decoration, only counted).  sim_init
+     * below also re-checks the whole catalog, so malformed data would
+     * abort with the room's name before this loop even runs. */
+    sim_init(42u);
+    for (int i = 0; i < longo_room_count(); i++) {
+        LongoRoomValidation report;
+        const LongoRoom *room = longo_room(i);
+        assert(room != NULL);
+        assert(longo_room_validate(i, &report));
+        assert(report.violations == 0);
+        /* the tile map is keyed off the same catalog identity */
+        assert(room_tiles_for(room) != NULL);
+        assert(room_tiles_for(room)->room_id == room->id);
+        assert(longo_room_tile_maps[i].room_id == i); /* indexed by id */
+    }
+    assert(longo_room(-1) == NULL);
+    assert(longo_room(longo_room_count()) == NULL);
+
+    /* the catalog owns play order: the title is room 0, the shipped
+     * prefix matches the sim's named play rooms, names and ids are
+     * unique, and the two authored-but-unshipped rooms (editor,
+     * levelbase) trail out of play */
+    assert(longo_room_count() == 11);
+    assert(longo_room_play_count() == SIM_ROOM_CREDITS + 1);
+    assert(strcmp(longo_room(SIM_ROOM_TITLE)->name, "rm_title_screen") == 0);
+    assert(longo_room(SIM_ROOM_TITLE)->id == LONGO_ROOM_ID_TITLE_SCREEN);
+    for (int i = 0; i < longo_room_count(); i++) {
+        for (int j = i + 1; j < longo_room_count(); j++) {
+            assert(strcmp(longo_room(i)->name, longo_room(j)->name) != 0);
+            assert(longo_room(i)->id != longo_room(j)->id);
+        }
+        assert(longo_room(i)->width % SIM_CELL == 0);
+        assert(longo_room(i)->height % SIM_CELL == 0);
+    }
+
+    /* transcription guard: the moved tables must match the original
+     * header-defined data for spot-checked rooms (row counts, first and
+     * last rows, anchors and the fractional wall scales) */
+    {
+        const LongoRoom *title = longo_room(SIM_ROOM_TITLE);
+        const LongoRoom *tutorial = longo_room(SIM_ROOM_TUTORIAL);
+        const LongoRoom *level1 = longo_room(SIM_ROOM_LEVEL1);
+        assert(title->width == 304 && title->height == 208);
+        assert(title->object_count == 34);
+        assert(title->objects[0].object == LONGO_OBJ_FLOWER);
+        assert(title->objects[0].x == 0 && title->objects[0].y == 224);
+        assert(title->objects[0].depth == -300);
+        assert(title->objects[5].object == LONGO_OBJ_WIN);
+        assert(title->objects[5].x == 136 && title->objects[5].xscale == 2);
+        assert(title->objects[33].object == LONGO_OBJ_FLOWER);
+        assert(title->objects[33].x == 96 && title->objects[33].y == 40);
+        assert(tutorial->object_count == 25);
+        assert(tutorial->objects[6].object == LONGO_OBJ_BLOCK);
+        assert(tutorial->objects[6].x == 0 &&
+               tutorial->objects[6].xscale == 19);
+        assert(tutorial->objects[8].object == LONGO_OBJ_BLOCK);
+        assert(tutorial->objects[8].x == 288 &&
+               tutorial->objects[8].yscale == 12.5f);
+        assert(tutorial->objects[14].object == LONGO_OBJ_TUTORIAL);
+        assert(tutorial->objects[14].x == 408 &&
+               tutorial->objects[14].xscale == 0.6666667f);
+        assert(level1->object_count == 56);
+        assert(level1->objects[0].object == LONGO_OBJ_FLOWER &&
+               level1->objects[0].y == 224);
+        assert(level1->objects[1].object == LONGO_OBJ_HOUSESPAWNER &&
+               level1->objects[1].x == 64 && level1->objects[1].y == 48);
+        assert(level1->objects[34].object == LONGO_OBJ_BLOCK);
+        assert(level1->objects[34].x == -16 &&
+               level1->objects[34].xscale == 21);
+        assert(level1->objects[55].object == LONGO_OBJ_APPLE);
+        assert(level1->objects[55].x == 344 && level1->objects[55].y == 120);
+    }
+
+    /* play progression follows catalog order and stops after the last
+     * shipped room (the editor and levelbase rooms stay unreachable) */
+    for (int i = 0; i + 1 < longo_room_play_count(); i++) {
+        sim_room_goto(world_ptr(), i);
+        tick_idle(2);
+        assert(world.room_index == i);
+        assert(world.room == longo_room(i));
+        sim_room_goto_next(world_ptr());
+        tick_idle(2);
+        assert(world.room_index == i + 1);
+    }
+    sim_room_goto(world_ptr(), longo_room_play_count() - 1);
+    tick_idle(2);
+    sim_room_goto_next(world_ptr());
+    tick_idle(2);
+    assert(world.room_index == longo_room_play_count() - 1);
+    sim_room_goto(world_ptr(), longo_room_play_count());
+    tick_idle(2);
+    assert(world.room_index == longo_room_play_count() - 1);
+
+    /* dialogue selection keys off the same catalog play indices (the
+     * switch in objects/dialogue.c is authored content) */
+    for (int i = 0; i < longo_room_play_count(); i++) {
+        int wants_dialogue =
+            (i == SIM_ROOM_TUTORIAL || i == SIM_ROOM_LEVEL6 ||
+             i == SIM_ROOM_LEVEL4 || i == SIM_ROOM_CREDITS);
+        sim_room_goto(world_ptr(), i);
+        tick_idle(2);
+        assert(dialogue_active() == wants_dialogue);
+    }
+}
+
 /* Registered in CTest with WILL_FAIL: it must exit non-zero in every
  * build configuration.  The side effect inside the assert proves check
  * expressions really evaluate; if -DNDEBUG ever strips them again, the
@@ -1646,6 +1761,7 @@ static const Scenario scenarios[] = {
     { "new_game_is_deterministic", test_new_game_is_deterministic },
     { "clock_and_event_delivery", test_clock_and_event_delivery },
     { "draw_composition_order", test_draw_composition_order },
+    { "room_catalog_loads_clean", test_room_catalog_loads_clean },
 };
 
 static void run_scenario(const Scenario *s)

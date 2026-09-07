@@ -15,7 +15,8 @@ core/undo.c   the move history: verbatim board snapshots
 core/rng.h    one xorshift per consumer (sim, fx, butterfly, house)
 core/sim_math.h  shared float math (lengthdir/point_direction/lerp)
 src/objects/  one script per game object; owns state, rules, view
-level_data.*  room tables (source of truth, never edited)
+level_data.*  room tables + catalog (source of truth, defined
+              once in level_data.c, never edited)
 ```
 
 Data flows one way per frame: the front-end translates OS events into a
@@ -68,7 +69,7 @@ every rotated sprite (the bark).
 sources: the full `sprHouse` (64x64, origin (32,64), so the anchor is
 the bottom-centre), then a second pass redraws the top 44 rows with the
 squash pulse. Porting only the crop or mis-deriving the anchor left the
-house floating and half-drawn. Object positions in `level_data.h` are
+house floating and half-drawn. Object positions in `level_data.c` are
 exact multiples of the cell size, so cell-packing round-trips
 losslessly when the stored cell and the offset (+8/+32 here) are
 derived from the spawn math, not guessed.

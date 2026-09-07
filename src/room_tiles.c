@@ -2,8 +2,6 @@
 
 #include "level_data.h"
 
-#include <string.h>
-
 static const unsigned int longo_tutorial_tiles_3[LONGO_ROOM_TILE_WIDTH * LONGO_ROOM_TILE_HEIGHT] = {
     6u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 4u, 5u, 6u, 0u, 
     14u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 12u, 13u, 14u, 0u, 
@@ -334,26 +332,26 @@ static const unsigned int longo_levelbase_tiles_3[LONGO_ROOM_TILE_WIDTH * LONGO_
 };
 
 
-const LongoRoomTileMap longo_room_tile_maps[LONGO_ROOM_TILE_COUNT] = {
-    { "rm_tutorial", { longo_tutorial_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 700, 500, 400, 300, 100, 0 },
-    { "rm_level1", { longo_level1_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 700, 500, 400, 300, 100, 0 },
-    { "rm_level2", { longo_level2_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 700, 500, 400, 300, 100, 0 },
-    { "rm_level3", { longo_level3_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 700, 500, 400, 300, 0, 0 },
-    { "rm_level4", { longo_level4_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 500, 300, 100, 0, -100, -200 },
-    { "rm_level5", { longo_level5_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 600, 400, 0, 300, 100, 0 },
-    { "rm_level6", { longo_level6_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 500, 300, 100, 0, -100, -200 },
-    { "rm_title_screen", { longo_title_screen_tiles_3, 38, 26, LONGO_TILESET_TILESET1, -200, 0, 0 }, 220, 20, -300, -400, -500, -600 },
-    { "rm_credits", { longo_credits_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 500, 300, 100, 0, -100, -200 },
-    { "rm_editor", { longo_editor_tiles_3, 38, 26, LONGO_TILESET_TILESET1, -200, 0, 0 }, 220, 20, -54, -127, -300, -400 },
-    { "rm_levelbase", { longo_levelbase_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 500, 300, 100, 0, -100, -200 },
+/* Indexed by LongoRoomId, so the array order is the identity order from
+ * level_data.h — not the catalog's play order. */
+const LongoRoomTileMap longo_room_tile_maps[LONGO_ROOM_ID_COUNT] = {
+    { LONGO_ROOM_ID_TITLE_SCREEN, { longo_title_screen_tiles_3, 38, 26, LONGO_TILESET_TILESET1, -200, 0, 0 }, 220, 20, -300, -400, -500, -600 },
+    { LONGO_ROOM_ID_TUTORIAL, { longo_tutorial_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 700, 500, 400, 300, 100, 0 },
+    { LONGO_ROOM_ID_LEVEL1, { longo_level1_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 700, 500, 400, 300, 100, 0 },
+    { LONGO_ROOM_ID_LEVEL2, { longo_level2_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 700, 500, 400, 300, 100, 0 },
+    { LONGO_ROOM_ID_LEVEL3, { longo_level3_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 700, 500, 400, 300, 0, 0 },
+    { LONGO_ROOM_ID_LEVEL4, { longo_level4_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 500, 300, 100, 0, -100, -200 },
+    { LONGO_ROOM_ID_LEVEL5, { longo_level5_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 600, 400, 0, 300, 100, 0 },
+    { LONGO_ROOM_ID_LEVEL6, { longo_level6_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 500, 300, 100, 0, -100, -200 },
+    { LONGO_ROOM_ID_CREDITS, { longo_credits_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 500, 300, 100, 0, -100, -200 },
+    { LONGO_ROOM_ID_EDITOR, { longo_editor_tiles_3, 38, 26, LONGO_TILESET_TILESET1, -200, 0, 0 }, 220, 20, -54, -127, -300, -400 },
+    { LONGO_ROOM_ID_LEVELBASE, { longo_levelbase_tiles_3, 38, 26, LONGO_TILESET_TILESET1, 200, 0, 0 }, 500, 300, 100, 0, -100, -200 },
 };
 
 const LongoRoomTileMap *room_tiles_for(const struct LongoRoom *room)
 {
-    if (room == NULL) return NULL;
-    for (int i = 0; i < LONGO_ROOM_TILE_COUNT; i++) {
-        if (strcmp(longo_room_tile_maps[i].room_name, room->name) == 0)
-            return &longo_room_tile_maps[i];
-    }
-    return NULL;
+    if (room == NULL || room->id < 0 || room->id >= LONGO_ROOM_ID_COUNT)
+        return NULL;
+    if (longo_room_tile_maps[room->id].tiles_3.data == NULL) return NULL;
+    return &longo_room_tile_maps[room->id];
 }

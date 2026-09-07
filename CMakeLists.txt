@@ -84,7 +84,8 @@ if(LONGO_DOGGO_BUILD_TESTS AND LONGO_DOGGO_PLATFORM STREQUAL "native")
         occupancy_matches_entities
         new_game_is_deterministic
         clock_and_event_delivery
-        draw_composition_order)
+        draw_composition_order
+        room_catalog_loads_clean)
     add_test(NAME smoke_all COMMAND longo_game_smoke)
     foreach(scenario IN LISTS LONGO_SMOKE_SCENARIOS)
         add_test(NAME smoke_${scenario} COMMAND longo_game_smoke ${scenario})

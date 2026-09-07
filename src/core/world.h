@@ -115,7 +115,27 @@ float world_random(float max);
 float world_random_range(float lo, float hi);
 
 
-/* Room order indices into longo_rooms[]. */
+/* Load-time validation of one catalog room (see longo_room_validate).
+ * The report separates malformed content from intentional clips:
+ * offscreen placements are authored decoration and only counted, while
+ * dimensions that miss the sim grid and functional objects beyond an
+ * entity pool's capacity are violations. */
+typedef struct LongoRoomValidation {
+    int violations;            /* malformed content, must be zero */
+    int offscreen;             /* deliberate off-grid decoration count */
+    char first_violation[192]; /* room name + cause, "" when clean */
+} LongoRoomValidation;
+
+/* Validate catalog room `index` against the sim grid and entity pool
+ * capacities.  Returns true when clean; `out` (may be NULL) carries the
+ * counts and the first violation's description. */
+bool longo_room_validate(int room_index, LongoRoomValidation *out);
+
+/* Named play indices into the room catalog (level_data.c).  The catalog
+ * owns the order and the shipped-room count (longo_room_play_count());
+ * these enumerators are readable names for the authored positions, and
+ * the tutorial dialogue switch (objects/dialogue.c) keys off them as
+ * authored content. */
 enum {
     SIM_ROOM_TITLE = 0,
     SIM_ROOM_TUTORIAL = 1,
@@ -125,8 +145,7 @@ enum {
     SIM_ROOM_LEVEL2 = 5,
     SIM_ROOM_LEVEL1 = 6,
     SIM_ROOM_LEVEL3 = 7,
-    SIM_ROOM_CREDITS = 8,
-    SIM_ROOM_COUNT = 9 /* the editor and levelbase rooms are dropped */
+    SIM_ROOM_CREDITS = 8
 };
 
 #endif /* LONGO_SIM_H */

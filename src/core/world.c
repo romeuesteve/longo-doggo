@@ -28,6 +28,8 @@
 #include "rng.h"
 
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
@@ -86,6 +88,203 @@ float world_random_range(float lo, float hi)
 /* ------------------------------------------------------------------ */
 /* Room loading                                                        */
 /* ------------------------------------------------------------------ */
+
+/* One loading policy: every catalog room is validated before its
+ * objects are loaded, so malformed data fails loudly with the room's
+ * name instead of being silently clipped or dropped on the floor.
+ *
+ * The policy distinguishes intentional clips from malformed content:
+ *   - offscreen placements (negative or oversized coordinates, the
+ *     border walls stamped past the play area, decoration outside the
+ *     room rect) are authored decoration; the loader intersects them
+ *     with the sim grid by design and the validator only counts them;
+ *   - dimensions that miss the sim grid (not a whole multiple of
+ *     SIM_CELL, or larger than SIM_MAX_CELLS_W/H) are a hard failure;
+ *   - functional objects (items per kind, buttons, doors, boxes,
+ *     holes, zone areas) beyond the entity pool capacities, and a
+ *     second dog/goal overwriting the singletons, are a hard failure.
+ * Every shipped room passes; these only fire on future malformed data.
+ * longo_room_validate() reports; load_room turns violations into an
+ * abort with the room's name. */
+typedef struct RoomLoadCounts {
+    int apples, pears, boxes, holes, buttons, doors;
+    int dogs, goals, wins; /* dog, house goal and win zone are singletons */
+} RoomLoadCounts;
+
+static void validation_fail(const LongoRoom *room, LongoRoomValidation *out,
+                            const char *what)
+{
+    out->violations++;
+    if (out->first_violation[0] == '\0')
+        snprintf(out->first_violation, sizeof(out->first_violation), "%s: %s",
+                 room->name, what);
+}
+
+static void validation_fail_capacity(const LongoRoom *room,
+                                     LongoRoomValidation *out, int count,
+                                     int cap, const char *what)
+{
+    char detail[160];
+    snprintf(detail, sizeof(detail), "%d %s exceed capacity %d", count, what,
+             cap);
+    validation_fail(room, out, detail);
+}
+
+bool longo_room_validate(int room_index, LongoRoomValidation *out)
+{
+    LongoRoomValidation report;
+    const LongoRoom *room = longo_room(room_index);
+    int cells_w, cells_h;
+    RoomLoadCounts counts = {0};
+
+    memset(&report, 0, sizeof(report));
+    if (out) *out = report;
+    if (room == NULL) {
+        snprintf(report.first_violation, sizeof(report.first_violation),
+                 "catalog index %d out of range", room_index);
+        report.violations++;
+        if (out) *out = report;
+        return false;
+    }
+
+    /* dimensions: the sim grid must fit the room exactly */
+    if (room->width % SIM_CELL != 0 || room->height % SIM_CELL != 0) {
+        validation_fail(room, &report, "pixel size not a multiple of "
+                                       "SIM_CELL");
+    }
+    cells_w = room->width / SIM_CELL;
+    cells_h = room->height / SIM_CELL;
+    if (cells_w > SIM_MAX_CELLS_W || cells_h > SIM_MAX_CELLS_H) {
+        char detail[160];
+        snprintf(detail, sizeof(detail), "%dx%d cells exceed sim grid %dx%d",
+                 cells_w, cells_h, SIM_MAX_CELLS_W, SIM_MAX_CELLS_H);
+        validation_fail(room, &report, detail);
+    }
+
+    for (int i = 0; i < room->object_count; i++) {
+        const LongoRoomObject *p = &room->objects[i];
+        switch (p->object) {
+        case LONGO_OBJ_BOX:
+        case LONGO_OBJ_HOLE:
+        case LONGO_OBJ_APPLE:
+        case LONGO_OBJ_PEAR:
+        case LONGO_OBJ_BUTTON:
+        case LONGO_OBJ_DOOR:
+        case LONGO_OBJ_HOUSESPAWNER:
+        case LONGO_OBJ_GOAL:
+        case LONGO_OBJ_WIN: {
+            /* functional cell objects: off-grid placements are authored
+             * decoration (the loader leaves them unreachable) and only
+             * the in-grid ones claim pool capacity */
+            int cx = (int)floorf(p->x / SIM_CELL);
+            int cy = (int)floorf(p->y / SIM_CELL);
+            if (cx < 0 || cy < 0 || cx >= cells_w || cy >= cells_h) {
+                report.offscreen++;
+                break;
+            }
+            switch (p->object) {
+            case LONGO_OBJ_APPLE: counts.apples++; break;
+            case LONGO_OBJ_PEAR: counts.pears++; break;
+            case LONGO_OBJ_BOX: counts.boxes++; break;
+            case LONGO_OBJ_HOLE: counts.holes++; break;
+            case LONGO_OBJ_BUTTON: counts.buttons++; break;
+            case LONGO_OBJ_DOOR: counts.doors++; break;
+            case LONGO_OBJ_GOAL:
+            case LONGO_OBJ_HOUSESPAWNER: counts.goals++; break;
+            case LONGO_OBJ_WIN: counts.wins++; break;
+            default: break;
+            }
+            if (p->object == LONGO_OBJ_BUTTON) {
+                /* a 16px button zone strictly overlaps at most 2x2
+                 * probe cells */
+                if (4 > BUTTON_ZONE_MAX)
+                    validation_fail_capacity(room, &report, 4,
+                                             BUTTON_ZONE_MAX, "button zone");
+            } else if (p->object == LONGO_OBJ_WIN ||
+                       p->object == LONGO_OBJ_HOUSESPAWNER) {
+                /* win-zone areas: worst-case strict overlap of the rect
+                 * with the 16px probe grid must fit the zone pool (the
+                 * spawner's zone is a fixed 32x32; a GOAL places no
+                 * zone of its own) */
+                float zw = (p->object == LONGO_OBJ_WIN) ? 16.0f * p->xscale
+                                                        : 32.0f;
+                float zh = (p->object == LONGO_OBJ_WIN) ? 16.0f * p->yscale
+                                                        : 32.0f;
+                int max_cells = ((int)(zw / SIM_CELL) + 1) *
+                                ((int)(zh / SIM_CELL) + 1);
+                if (max_cells > HOUSE_WIN_ZONE_MAX) {
+                    char detail[160];
+                    snprintf(detail, sizeof(detail),
+                             "win zone %dx%d px may span %d cells, capacity "
+                             "%d",
+                             (int)zw, (int)zh, max_cells, HOUSE_WIN_ZONE_MAX);
+                    validation_fail(room, &report, detail);
+                }
+            }
+            break;
+        }
+        case LONGO_OBJ_BLOCK: {
+            /* walls stamp by intersection: only a block entirely off the
+             * room rect is offscreen decoration */
+            float x1 = p->x + 16.0f * p->xscale;
+            float y1 = p->y + 16.0f * p->yscale;
+            if (x1 <= 0.0f || y1 <= 0.0f || p->x >= (float)room->width ||
+                p->y >= (float)room->height)
+                report.offscreen++;
+            break;
+        }
+        case LONGO_OBJ_FLOWER:
+            if (p->x < 0.0f || p->y < 0.0f ||
+                p->x >= (float)room->width || p->y >= (float)room->height)
+                report.offscreen++;
+            break;
+        case LONGO_OBJ_DOG:
+            counts.dogs++;
+            break;
+        default:
+            break; /* cosmetics and editor-only objects carry no capacity */
+        }
+    }
+
+    if (counts.apples > ITEMS_MAX)
+        validation_fail_capacity(room, &report, counts.apples, ITEMS_MAX,
+                                 "apples");
+    if (counts.pears > ITEMS_MAX)
+        validation_fail_capacity(room, &report, counts.pears, ITEMS_MAX,
+                                 "pears");
+    if (counts.boxes > BOX_MAX)
+        validation_fail_capacity(room, &report, counts.boxes, BOX_MAX, "boxes");
+    if (counts.holes > HOLE_MAX)
+        validation_fail_capacity(room, &report, counts.holes, HOLE_MAX,
+                                 "holes");
+    if (counts.buttons > BUTTON_MAX)
+        validation_fail_capacity(room, &report, counts.buttons, BUTTON_MAX,
+                                 "buttons");
+    if (counts.doors > DOOR_MAX)
+        validation_fail_capacity(room, &report, counts.doors, DOOR_MAX,
+                                 "doors");
+    if (counts.dogs > 1)
+        validation_fail_capacity(room, &report, counts.dogs, 1, "dog spawns");
+    if (counts.goals > 1)
+        validation_fail_capacity(room, &report, counts.goals, 1,
+                                 "house goals");
+    if (counts.wins > 1)
+        validation_fail_capacity(room, &report, counts.wins, 1,
+                                 "house win zones");
+
+    if (out) *out = report;
+    return report.violations == 0;
+}
+
+/* The loader's precondition: never load a room the validator rejects. */
+static void validate_room_or_abort(int room_index)
+{
+    LongoRoomValidation report;
+    if (longo_room_validate(room_index, &report)) return;
+    fprintf(stderr, "room data: %s\n", report.first_violation);
+    fprintf(stderr, "room data: fix the authored tables in level_data.c\n");
+    abort();
+}
 
 static int rects_strictly_overlap(float ax, float ay, float aw, float ah,
                                   float bx, float by, float bw, float bh)
@@ -152,18 +351,21 @@ static void mark_footprint(SimWorld *w, float bx, float by, float bw,
  * The tutorial dialogue texts. */
 static void load_room(SimWorld *w, int room_index)
 {
-    const LongoRoom *room = longo_rooms[room_index];
+    const LongoRoom *room = longo_room(room_index);
     float dog_x = 0, dog_y = 0;
     int have_dog = 0;
     int title = 0;
     int have_tutorial = 0;
 
+    if (room == NULL) return;
+    /* the one load policy: malformed data never reaches the loaders */
+    validate_room_or_abort(room_index);
     w->room_index = room_index;
     w->room = room;
+    /* the validator guaranteed the exact fit (whole SIM_CELL multiples
+     * within SIM_MAX_CELLS_W/H), so no clipping here */
     w->cells_w = room->width / SIM_CELL;
     w->cells_h = room->height / SIM_CELL;
-    if (w->cells_w > SIM_MAX_CELLS_W) w->cells_w = SIM_MAX_CELLS_W;
-    if (w->cells_h > SIM_MAX_CELLS_H) w->cells_h = SIM_MAX_CELLS_H;
     w->room_loaded_tick = w->tick;
 
     solid_reset();
@@ -475,7 +677,9 @@ void sim_frame(double dt_ms, const SimInput *input,
 
 void sim_room_goto(SimWorld *w, int room_index)
 {
-    if (room_index < 0 || room_index >= SIM_ROOM_COUNT) return;
+    /* the catalog owns the play bound: the two authored rooms past the
+     * in-play prefix stay unreachable */
+    if (room_index < 0 || room_index >= longo_room_play_count()) return;
     load_room(w, room_index);
 }
 
@@ -500,6 +704,10 @@ void sim_init(unsigned int seed)
     /* tick starts at 1 so room_loaded_tick comparisons (load_tick ==
      * current tick) key off a nonzero value */
     w->tick = 1;
+    /* a new game checks every authored room up front, so malformed data
+     * fails here rather than rooms later (load_room re-checks the room
+     * it loads) */
+    for (int i = 0; i < longo_room_count(); i++) validate_room_or_abort(i);
     /* The transition outlives room loads (its object is placed only in
      * the title room but must keep wiping across rooms); a new game
      * still starts from a clean wipe. */

@@ -61,6 +61,11 @@ void dialogue_reset(void)
     dlg.release_ticks = -1;
 }
 
+/* Which room gets which dialogue is authored content, keyed by the
+ * catalog play indices (SIM_ROOM_* in core/world.h — the same catalog
+ * order that level_data.c defines).  A room only reaches dialogue_start
+ * when its table contains a LONGO_OBJ_TUTORIAL object, so the switch
+ * and the room tables stay in step through load_room. */
 void dialogue_start(int room_index)
 {
     memset(&dlg, 0, sizeof(dlg));

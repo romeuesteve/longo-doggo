@@ -3,23 +3,10 @@
 
 #include <stddef.h>
 
+#include "level_data.h"
+
 #define LONGO_ROOM_TILE_WIDTH 38
 #define LONGO_ROOM_TILE_HEIGHT 26
-#define LONGO_ROOM_TILE_COUNT 11
-
-enum {
-    LONGO_ROOM_TUTORIAL_INDEX = 0,
-    LONGO_ROOM_LEVEL1_INDEX = 1,
-    LONGO_ROOM_LEVEL2_INDEX = 2,
-    LONGO_ROOM_LEVEL3_INDEX = 3,
-    LONGO_ROOM_LEVEL4_INDEX = 4,
-    LONGO_ROOM_LEVEL5_INDEX = 5,
-    LONGO_ROOM_LEVEL6_INDEX = 6,
-    LONGO_ROOM_TITLE_SCREEN_INDEX = 7,
-    LONGO_ROOM_CREDITS_INDEX = 8,
-    LONGO_ROOM_EDITOR_INDEX = 9,
-    LONGO_ROOM_LEVELBASE_INDEX = 10,
-};
 
 typedef enum LongoTileSet {
     LONGO_TILESET_TILESET1 = 0
@@ -36,7 +23,7 @@ typedef struct LongoTileLayer {
 } LongoTileLayer;
 
 typedef struct LongoRoomTileMap {
-    const char *room_name;
+    int room_id; /* LongoRoomId: the catalog entry these tiles belong to */
     LongoTileLayer tiles_3;
     int background_depth;
     int shadows_depth;
@@ -46,10 +33,11 @@ typedef struct LongoRoomTileMap {
     int gui_depth;
 } LongoRoomTileMap;
 
-extern const LongoRoomTileMap longo_room_tile_maps[LONGO_ROOM_TILE_COUNT];
+/* One tile map per authored room, indexed by LongoRoomId so the lookup
+ * keys off the catalog entry instead of re-matching room names. */
+extern const LongoRoomTileMap longo_room_tile_maps[LONGO_ROOM_ID_COUNT];
 
-/* Tile map for a room by name (NULL when the room has none). */
-struct LongoRoom;
+/* Tile map for a catalog room (NULL when the room has none). */
 const LongoRoomTileMap *room_tiles_for(const struct LongoRoom *room);
 
 #endif
