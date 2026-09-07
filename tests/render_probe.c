@@ -199,6 +199,30 @@ int main(void)
         CHECK(control > 0);
     }
 
+    /* World graphics after window text must blend exactly once. Exercise
+     * no text, a text-first stream, and multiple interleaved runs. */
+    for (int mode = 0; mode < 4; mode++) {
+        unsigned char c[4];
+        view_begin_frame();
+        view_layer(VIEW_WORLD);
+        if (mode == 2)
+            view_text(2, 1, "FIRST", 152, 40, 1, view_rgb(255, 255, 255));
+        push_blue_world();
+        if (mode == 1 || mode == 3)
+            view_text(0, 1, "BETWEEN", 152, 40, 1, view_rgb(255, 255, 255));
+        view_rect(-1, 110, 110, 84, 84, (ViewColor){255, 0, 0, 128});
+        if (mode == 3) {
+            view_text(-2, 1, "AGAIN", 152, 60, 1, view_rgb(255, 255, 255));
+            view_rect(-3, 110, 110, 84, 84, (ViewColor){0, 255, 0, 128});
+        }
+        capture(&render, world_ptr());
+        sample(600, 600, c);
+        printf("(iv) world blend mode %d = (%d, %d, %d)\n", mode, c[0], c[1], c[2]);
+        CHECK(within(c[0], mode == 3 ? 64 : 128, 1));
+        CHECK(within(c[1], mode == 3 ? 128 : 0, 1));
+        CHECK(within(c[2], mode == 3 ? 63 : 127, 1));
+    }
+
     free(frame);
     longo_render_shutdown(&render);
     CloseWindow();

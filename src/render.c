@@ -926,35 +926,25 @@ static void composite_layer_run(LongoRender *render, ViewLayer layer,
  * item behind a lower-depth rect stays behind it, and text between two
  * gfx runs lands between them.
  *
- * The world layer's backmost run rides in the opaque application
- * surface (base_composited: blitted by the caller), so only runs past
- * the first text item need the canvas again; a layer without text never
- * touches it, which keeps the common frame at one fill per surface. */
+ * Start after any prefix already drawn into the application surface. */
 static void present_layer_segments(LongoRender *render, ViewLayer layer,
-                                   Rectangle screen, bool base_composited)
+                                   Rectangle screen, int from)
 {
     int count;
     const ViewItem *items = view_items(layer, &count);
-    bool base_pending = base_composited;
-    bool text_drawn = false;
-    int i = 0;
+    int i = from;
 
     while (i < count) {
         int run_end = i;
         while (run_end < count &&
                !is_window_text(&items[view_order_at(layer, run_end)]))
             run_end++;
-        if (run_end > i) {
-            if (base_pending && !text_drawn)
-                base_pending = false; /* backmost run: in the app surface */
-            else
-                composite_layer_run(render, layer, i, run_end, screen);
-        }
+        if (run_end > i)
+            composite_layer_run(render, layer, i, run_end, screen);
         while (run_end < count &&
                is_window_text(&items[view_order_at(layer, run_end)])) {
             draw_text_item_window_scale(render,
                                         &items[view_order_at(layer, run_end)]);
-            text_drawn = true;
             run_end++;
         }
         i = run_end;
@@ -975,10 +965,22 @@ void longo_render_frame(LongoRender *render, const SimWorld *world)
     replay_layer(render, VIEW_SHADOW);
     EndTextureMode();
 
-    /* application surface from the world layer */
+    /* Only the world prefix before window text belongs in the base.
+     * Preserve opaque coverage when translucent items blend over black. */
+    int world_count, world_prefix = 0;
+    const ViewItem *world_items = view_items(VIEW_WORLD, &world_count);
     BeginTextureMode(render->app_surface);
     ClearBackground(BLACK);
-    replay_layer(render, VIEW_WORLD);
+    rlSetBlendFactorsSeparate(RL_SRC_ALPHA, RL_ONE_MINUS_SRC_ALPHA, RL_ONE,
+                              RL_ONE_MINUS_SRC_ALPHA, RL_FUNC_ADD, RL_FUNC_ADD);
+    BeginBlendMode(BLEND_CUSTOM_SEPARATE);
+    while (world_prefix < world_count) {
+        const ViewItem *item = &world_items[view_order_at(VIEW_WORLD, world_prefix)];
+        if (is_window_text(item)) break;
+        replay_item(render, item);
+        world_prefix++;
+    }
+    EndBlendMode();
     EndTextureMode();
 
     /* present, in the composition order the sorted stream describes:
@@ -986,7 +988,7 @@ void longo_render_frame(LongoRender *render, const SimWorld *world)
      * the gfx runs that surround it (segment compositing, see
      * present_layer_segments).  Text still rides at window resolution
      * (crisp at any window size instead of resampled with the pixel
-     * surface), and gfx runs re-composited after it keep the stream's
+     * surface), and gfx runs composited after it keep the stream's
      * depth order within the layer too. */
     BeginDrawing();
     ClearBackground(BLACK);
@@ -994,8 +996,8 @@ void longo_render_frame(LongoRender *render, const SimWorld *world)
                          (float)GetScreenHeight() };
     DrawTexturePro(render->app_surface.texture, rect_flip(), screen,
                    (Vector2){ 0, 0 }, 0.0f, WHITE);
-    present_layer_segments(render, VIEW_WORLD, screen, true);
-    present_layer_segments(render, VIEW_GUI, screen, false);
+    present_layer_segments(render, VIEW_WORLD, screen, world_prefix);
+    present_layer_segments(render, VIEW_GUI, screen, 0);
     EndDrawing();
 }
 
