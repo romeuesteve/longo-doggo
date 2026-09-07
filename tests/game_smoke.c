@@ -1380,11 +1380,33 @@ static void assert_new_game_snapshots_equal(const NewGameSnapshot *a,
     }
 }
 
+/* The script ends inside the level6 dialogue: it pressed through a few
+ * boxes and then ran the view pass so the panel-scale easing moved off
+ * its fresh-start values.  The compared draw streams therefore cover
+ * the dialogue view state (panel scales, advance edge) that a new game
+ * must reset — without that, the second run's first captured panel
+ * draws at the first run's leftover scale and the byte-compare fails. */
 static void run_new_game_script(void)
 {
+    SimInput in;
     start_playable_in_tutorial(); /* sim_init(42u) -> title -> tutorial */
     press_dir(90);
     press_dir(90);
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL6);
+    tick_idle(2);
+    memset(&in, 0, sizeof(in));
+    for (int i = 0; i < 3; i++) { /* press through three boxes */
+        in.pressed_space = 1;
+        tick_with(&in);
+        in.pressed_space = 0;
+        tick_idle(1);
+    }
+    assert(dialogue_active());
+    for (int i = 0; i < 4; i++) { /* ease the panel scales */
+        tick_idle(1);
+        world_view_tick(&in);
+    }
+    assert(dialogue_active()); /* captured mid-shrink, panel still drawn */
 }
 
 static void test_new_game_is_deterministic(void)
@@ -1852,8 +1874,8 @@ static void test_room_catalog_loads_clean(void)
     tick_idle(2);
     assert(world.room_index == longo_room_play_count() - 1);
 
-    /* dialogue selection keys off the same catalog play indices (the
-     * switch in objects/dialogue.c is authored content) */
+    /* dialogue selection keys off the rooms' stable catalog identity
+     * (LongoRoomId): exactly the four authored dialogue rooms start one */
     for (int i = 0; i < longo_room_play_count(); i++) {
         int wants_dialogue =
             (i == SIM_ROOM_TUTORIAL || i == SIM_ROOM_LEVEL6 ||

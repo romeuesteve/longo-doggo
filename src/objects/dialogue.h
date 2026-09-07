@@ -20,9 +20,10 @@ typedef struct Dbox {
 } Dbox;
 
 void dialogue_reset(void);
-/* Texts per room (tutorial, level6, level4, credits); clears the dog's
- * play gate through the dog script when the room gates play. */
-void dialogue_start(int room_index);
+/* Texts per room (tutorial, level6, level4, credits), keyed off the
+ * room's catalog identity (LongoRoomId); clears the dog's play gate
+ * through the dog script when the room gates play. */
+void dialogue_start(const LongoRoom *room);
 void dialogue_tick(const SimInput *input); /* advance on space/enter/E */
 
 bool dialogue_active(void);

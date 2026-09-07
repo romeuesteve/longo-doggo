@@ -133,9 +133,10 @@ bool longo_room_validate(int room_index, LongoRoomValidation *out);
 
 /* Named play indices into the room catalog (level_data.c).  The catalog
  * owns the order and the shipped-room count (longo_room_play_count());
- * these enumerators are readable names for the authored positions, and
- * the tutorial dialogue switch (objects/dialogue.c) keys off them as
- * authored content. */
+ * these enumerators are readable names for the authored positions (the
+ * tests and sim_room_goto callers use them).  Authored content that
+ * needs a room's identity — the dialogue texts, the tile maps — keys off
+ * the stable LongoRoomId the room carries, not off these positions. */
 enum {
     SIM_ROOM_TITLE = 0,
     SIM_ROOM_TUTORIAL = 1,

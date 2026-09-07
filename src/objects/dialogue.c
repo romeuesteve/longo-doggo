@@ -21,6 +21,13 @@ typedef struct Dialogue {
 
 static Dialogue dlg;
 
+/* View state of the dialogue: the advance edge (this tick's press, for
+ * the bounce) and the box pop-in scale easing.  They live with the
+ * rules state so dialogue_reset() can restore all of it: a new game
+ * must not inherit the previous session's easing. */
+static bool advance_pressed; /* this tick's advance edge, for the view */
+static float v_scale_x = 1.0f, v_scale_y = 1.0f;
+
 /* The tutorial lines. */
 static const char *const TUTORIAL_TEXTS[7] = {
     "This is Longo Doggo",
@@ -59,14 +66,21 @@ void dialogue_reset(void)
 {
     memset(&dlg, 0, sizeof(dlg));
     dlg.release_ticks = -1;
+    /* the complete reset contract: the view easing and the advance edge
+     * are dialogue state too, so a new game (or any room load) starts
+     * from the same panel scale and press history as a fresh process */
+    advance_pressed = false;
+    v_scale_x = 1.0f;
+    v_scale_y = 1.0f;
 }
 
 /* Which room gets which dialogue is authored content, keyed by the
- * catalog play indices (SIM_ROOM_* in core/world.h — the same catalog
- * order that level_data.c defines).  A room only reaches dialogue_start
- * when its table contains a LONGO_OBJ_TUTORIAL object, so the switch
- * and the room tables stay in step through load_room. */
-void dialogue_start(int room_index)
+ * room's stable catalog identity (LongoRoomId in level_data.h — the id
+ * every room table carries and the tile maps key off).  A room only
+ * reaches dialogue_start when its table contains a LONGO_OBJ_TUTORIAL
+ * object, so the switch and the room tables stay in step through
+ * load_room. */
+void dialogue_start(const LongoRoom *room)
 {
     memset(&dlg, 0, sizeof(dlg));
     dlg.active = true;
@@ -75,7 +89,7 @@ void dialogue_start(int room_index)
     dlg.target_x = 4;
     dlg.target_y = 2;
 
-    if (room_index == SIM_ROOM_TUTORIAL) {
+    if (room->id == LONGO_ROOM_ID_TUTORIAL) {
         dlg.last = 6;
         dlg.gates_play = true;
         for (int i = 0; i <= dlg.last; i++) {
@@ -91,7 +105,7 @@ void dialogue_start(int room_index)
                 break;
             }
         }
-    } else if (room_index == SIM_ROOM_LEVEL6) {
+    } else if (room->id == LONGO_ROOM_ID_LEVEL6) {
         dlg.last = 2;
         dlg.gates_play = true;
         for (int i = 0; i <= dlg.last; i++) {
@@ -99,13 +113,13 @@ void dialogue_start(int room_index)
             dlg.box[i].y = LEVEL6_BOX_Y[i];
             dlg.box[i].text = LEVEL6_TEXTS[i];
         }
-    } else if (room_index == SIM_ROOM_LEVEL4) {
+    } else if (room->id == LONGO_ROOM_ID_LEVEL4) {
         dlg.last = 0;
         dlg.gates_play = true;
         dlg.box[0].x = LEVEL4_BOX_X[0];
         dlg.box[0].y = LEVEL4_BOX_Y[0];
         dlg.box[0].text = LEVEL4_TEXTS[0];
-    } else if (room_index == SIM_ROOM_CREDITS) {
+    } else if (room->id == LONGO_ROOM_ID_CREDITS) {
         dlg.last = 1;
         dlg.gates_play = false;
         dlg.target_x = 10;
@@ -121,8 +135,6 @@ void dialogue_start(int room_index)
 }
 
 /* Draw pass; the box scale easing is view-side. */
-static bool advance_pressed; /* this tick's advance edge, for the view */
-
 void dialogue_tick(const SimInput *input)
 {
     advance_pressed = (input->pressed_space || input->pressed_enter ||
@@ -157,8 +169,6 @@ bool dialogue_released(void) { return dlg.release_ticks >= 0; }
 /* ------------------------------------------------------------------ */
 /* View: box pop-in scale + Draw GUI pass                              */
 /* ------------------------------------------------------------------ */
-
-static float v_scale_x = 1.0f, v_scale_y = 1.0f;
 
 void dialogue_view_tick(void)
 {

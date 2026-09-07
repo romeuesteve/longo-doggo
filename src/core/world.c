@@ -519,7 +519,7 @@ static void load_room(SimWorld *w, int room_index)
 
     if (have_dog) dog_place(dog_x, dog_y);
     if (title) dog_title_arrangement();
-    if (have_tutorial) dialogue_start(room_index);
+    if (have_tutorial) dialogue_start(room);
     /* house_tick recomputes remain to dog.length - 2 on its first tick;
      * the pre-seeded 1 prevents the win from arming on the load tick. */
 }
