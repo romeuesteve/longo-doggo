@@ -58,9 +58,9 @@ static void dog_stamp(void)
 
 static void dog_unstamp(void)
 {
-    solid_clear(head_cell());
+    solid_clear_owned(head_cell(), SOLID_HEAD, 0);
     for (int i = 0; i < dog.length; i++)
-        solid_clear(dog.chain[i]);
+        solid_clear_owned(dog.chain[i], SOLID_BODY, i);
 }
 
 void dog_reset(void)
@@ -199,7 +199,8 @@ static void shift_chain(uint16_t old_head)
      * box may have just been pushed onto it (the tail is not solid), so
      * only clear it when it still holds a body part. */
     uint16_t tail = dog.chain[dog.length - 1];
-    if (solid_kind_at(tail) == SOLID_BODY) solid_clear(tail);
+    if (solid_kind_at(tail) == SOLID_BODY)
+        solid_clear_owned(tail, SOLID_BODY, dog.length - 1);
     dog.detached_cell = tail;
     for (int i = dog.length - 1; i > 0; i--) dog.chain[i] = dog.chain[i - 1];
     dog.chain[0] = old_head;

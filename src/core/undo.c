@@ -9,8 +9,9 @@
 #include "events.h"
 #include "solid.h"
 
-/* Every board-changing move is one dog step; ~4 KB each, so a few
- * hundred entries stay well inside static memory. */
+/* Every board-changing move is one dog step; ~7 KB each (the solid
+ * snapshot carries the map plus its shadows), so a few hundred entries
+ * stay well inside static memory. */
 #define UNDO_MAX 256
 
 typedef struct UndoState {

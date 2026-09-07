@@ -24,7 +24,7 @@ static void box_stamp(int index)
 
 static void box_unstamp(int index)
 {
-    solid_clear(boxes[index].cell);
+    solid_clear_owned(boxes[index].cell, SOLID_BOX, index);
 }
 
 void box_reset(void)

@@ -23,7 +23,7 @@ static void door_stamp(int index)
 
 static void door_unstamp(int index)
 {
-    solid_clear(doors[index].cell);
+    solid_clear_owned(doors[index].cell, SOLID_DOOR, index);
 }
 
 void door_reset(void)

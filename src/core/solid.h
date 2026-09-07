@@ -29,7 +29,10 @@ typedef enum SolidKind {
 } SolidKind;
 
 /* Cell -> occupant entry; defined here so the undo history can capture
- * the whole map verbatim (core/undo.c). */
+ * the whole map verbatim (core/undo.c).  Every cell also carries a
+ * shadow: the entry a placement displaced, restored when the same owner
+ * vacates (a box parked on a filled hole takes the cell from the hole
+ * and hands it back when it moves on). */
 typedef struct SolidCell {
     SolidKind kind;
     int index;
@@ -37,6 +40,7 @@ typedef struct SolidCell {
 
 typedef struct SolidSnapshot {
     SolidCell cells[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
+    SolidCell shadow[SIM_MAX_CELLS_W * SIM_MAX_CELLS_H];
 } SolidSnapshot;
 
 void solid_reset(void);
@@ -47,6 +51,11 @@ void solid_restore(const SolidSnapshot *snap);
 
 void solid_place(uint16_t cell, SolidKind kind, int index);
 void solid_clear(uint16_t cell);
+/* Owner-checked removal: clears the cell only when its current entry IS
+ * the caller's (kind, index), restoring the shadowed entry.  Movers'
+ * unstamp paths go through this; raw solid_clear stays for load-time
+ * stamping and full resets. */
+void solid_clear_owned(uint16_t cell, SolidKind kind, int index);
 
 SolidKind solid_kind_at(uint16_t cell);
 int solid_index_at(uint16_t cell);

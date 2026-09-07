@@ -1118,6 +1118,51 @@ static void test_occupancy_matches_entities(void)
         tick_idle(1);
         assert(!box_alive(3));
         assert(hole_is_full(hole));
+        /* the fill keeps the hole's own stamp: the map still names the
+         * hole and hole_index_at still resolves it */
+        assert(solid_kind_at(sim_cell_of(15, 10)) == SOLID_HOLE);
+        assert(hole_index_at(sim_cell_of(15, 10)) == hole);
+        assert_occupancy_matches_entities();
+
+        /* removals restore what was underneath: a box parked on the
+         * filled hole (box_set_cell hook) takes the cell from the hole,
+         * and moving it away hands the stamp back to the hole */
+        assert(box_alive(2));
+        box_set_cell(2, sim_cell_of(15, 10));
+        assert(solid_kind_at(sim_cell_of(15, 10)) == SOLID_BOX);
+        box_set_cell(2, sim_cell_of(0, 0));
+        assert(solid_kind_at(sim_cell_of(15, 10)) == SOLID_HOLE);
+        assert(hole_index_at(sim_cell_of(15, 10)) == hole);
+        assert_occupancy_matches_entities();
+    }
+
+    /* the same contract over a wall: a box parked on a wall cell takes
+     * the cell from the wall, and moving it away restores the wall
+     * stamp instead of leaving bare ground behind */
+    {
+        int wall_box = -1;
+        uint16_t wall_cell = 0;
+        int found = 0;
+        for (int cy = 0; cy < world.cells_h; cy++) {
+            for (int cx = 0; cx < world.cells_w; cx++) {
+                uint16_t here = sim_cell_of(cx, cy);
+                if (solid_kind_at(here) == SOLID_WALL &&
+                    box_index_at(here) < 0) {
+                    wall_cell = here;
+                    found = 1;
+                }
+            }
+        }
+        assert(found);
+        for (int b = 0; b < box_count(); b++) {
+            if (box_alive(b) && box_cell(b) != wall_cell) wall_box = b;
+        }
+        assert(wall_box >= 0);
+        box_set_cell(wall_box, wall_cell);
+        assert(solid_kind_at(wall_cell) == SOLID_BOX);
+        assert_occupancy_matches_entities();
+        box_set_cell(wall_box, sim_cell_of(0, 0));
+        assert(solid_kind_at(wall_cell) == SOLID_WALL);
         assert_occupancy_matches_entities();
     }
 
