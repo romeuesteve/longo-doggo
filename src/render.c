@@ -6,7 +6,9 @@
  * item lists:
  *   - application surface at the 304x208 logical resolution
  *   - global.shadow_surf rebuilt per frame, composited at 0.2 alpha
- *   - GUI surface: the application surface, then GUI items
+ *   - GUI surface: transparent canvas with the GUI items; the present
+ *     pass composites world -> world-layer text -> GUI -> GUI-layer
+ *     text, so the stream's depth order is the composition order
  *   - static tile layers (sprTile ground, room Tiles_3) stamped into
  *     cached surfaces per room and composited as one quad per layer
  *
@@ -24,8 +26,6 @@
 #include "render.h"
 #include "room_tiles.h"
 #include "sprites.h"
-
-#include "objects/dog.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -672,35 +672,37 @@ static void draw_text_wrapped(LongoRender *render, Font font,
     }
 }
 
-/* Present-pass replay of the UI text items (everything except the
- * pixel digits font), in push order per layer. */
-static void draw_text_items_window_scale(LongoRender *render)
+/* Present-pass replay of one layer's UI text items (everything except
+ * the pixel digits font), in sorted draw order.  The caller places the
+ * call at the layer's composition position: between the world composite
+ * and the GUI items for VIEW_WORLD, after them for VIEW_GUI — so text
+ * respects the depth order the stream describes instead of floating
+ * above the whole frame. */
+static void draw_text_items_window_scale(LongoRender *render, ViewLayer layer)
 {
     Font font = text_font(render);
     float rx = text_ratio_x();
     float ry = text_ratio_y();
-    for (int layer = VIEW_WORLD; layer <= VIEW_GUI; layer++) {
-        int count;
-        const ViewItem *items = view_items((ViewLayer)layer, &count);
-        for (int i = 0; i < count; i++) {
-            const ViewItem *it = &items[view_order_at((ViewLayer)layer, i)];
-            if (it->kind != VIEW_ITEM_TEXT &&
-                it->kind != VIEW_ITEM_TEXT_WRAPPED)
-                continue;
-            if (it->font_id == 2) continue; /* in-world digits font */
-            /* the atlas is baked at exactly this size for the default
-             * window scale, so glyphs draw without resampling */
-            float size = LONGO_TEXT_BASE_PX * it->xscale;
-            bool centered = it->font_id != 0;
-            if (it->kind == VIEW_ITEM_TEXT) {
-                draw_text_line(font, it->text, it->x * rx, it->y * ry, size,
-                               centered, to_ray_color(it->color));
-            } else {
-                draw_text_wrapped(render, font, it->text, it->x * rx,
-                                  it->y * ry, it->line_sep * it->xscale * ry,
-                                  it->text_width * rx, size,
-                                  to_ray_color(it->color));
-            }
+    int count;
+    const ViewItem *items = view_items(layer, &count);
+    for (int i = 0; i < count; i++) {
+        const ViewItem *it = &items[view_order_at(layer, i)];
+        if (it->kind != VIEW_ITEM_TEXT &&
+            it->kind != VIEW_ITEM_TEXT_WRAPPED)
+            continue;
+        if (it->font_id == 2) continue; /* in-world digits font */
+        /* the atlas is baked at exactly this size for the default
+         * window scale, so glyphs draw without resampling */
+        float size = LONGO_TEXT_BASE_PX * it->xscale;
+        bool centered = it->font_id != 0;
+        if (it->kind == VIEW_ITEM_TEXT) {
+            draw_text_line(font, it->text, it->x * rx, it->y * ry, size,
+                           centered, to_ray_color(it->color));
+        } else {
+            draw_text_wrapped(render, font, it->text, it->x * rx,
+                              it->y * ry, it->line_sep * it->xscale * ry,
+                              it->text_width * rx, size,
+                              to_ray_color(it->color));
         }
     }
 }
@@ -787,8 +789,7 @@ static void tile_cache_ensure(LongoRender *render,
 /* View replay                                                        */
 /* --------------------------------------------------------------- */
 
-static void replay_item(LongoRender *render, const SimWorld *world,
-                        const ViewItem *it)
+static void replay_item(LongoRender *render, const ViewItem *it)
 {
     switch (it->kind) {
     case VIEW_ITEM_SPRITE:
@@ -833,13 +834,19 @@ static void replay_item(LongoRender *render, const SimWorld *world,
             draw_digits_text(&render->font_digits, it->text, it->x, it->y,
                              to_ray_color(it->color));
         }
+        /* font 0/1 text replays in the present pass at window scale, in
+         * its layer's sorted composition position (see
+         * draw_text_items_window_scale) */
         break;
     case VIEW_ITEM_TEXT_WRAPPED:
         /* replayed in the present pass at window scale (see
          * draw_text_items_window_scale); skip here */
         break;
     case VIEW_ITEM_SHADOW_COMPOSITE:
-        if (dog_alive()) {
+        /* world_draw() emits the item only when the composite belongs
+         * in the frame (the room has shadows and the dog is alive); the
+         * replay consumes the stream, it never queries gameplay state */
+        {
             Color tint = { 255, 255, 255, (unsigned char)(255 * 0.2f) };
             DrawTexturePro(render->shadow_surface.texture, rect_flip(),
                            rect_full(), (Vector2){ 0, 0 }, 0.0f, tint);
@@ -860,13 +867,12 @@ static void replay_item(LongoRender *render, const SimWorld *world,
     }
 }
 
-static void replay_layer(LongoRender *render, const SimWorld *world,
-                         ViewLayer layer)
+static void replay_layer(LongoRender *render, ViewLayer layer)
 {
     int count;
     const ViewItem *items = view_items(layer, &count);
     for (int i = 0; i < count; i++)
-        replay_item(render, world, &items[view_order_at(layer, i)]);
+        replay_item(render, &items[view_order_at(layer, i)]);
 }
 
 void longo_render_frame(LongoRender *render, const SimWorld *world)
@@ -880,33 +886,43 @@ void longo_render_frame(LongoRender *render, const SimWorld *world)
     /* shadow surface from the shadow layer */
     BeginTextureMode(render->shadow_surface);
     ClearBackground(BLANK);
-    replay_layer(render, world, VIEW_SHADOW);
+    replay_layer(render, VIEW_SHADOW);
     EndTextureMode();
 
     /* application surface from the world layer */
     BeginTextureMode(render->app_surface);
     ClearBackground(BLACK);
-    replay_layer(render, world, VIEW_WORLD);
+    replay_layer(render, VIEW_WORLD);
     EndTextureMode();
 
-    /* GUI surface: the application surface, then GUI items */
+    /* GUI surface: the GUI items only, on a transparent canvas; the
+     * present pass composites it over the world so GUI items (the level
+     * wipe) also cover world-layer text */
     BeginTextureMode(render->gui_surface);
-    ClearBackground(BLACK);
-    DrawTexturePro(render->app_surface.texture, rect_flip(), rect_full(),
-                   (Vector2){ 0, 0 }, 0.0f, WHITE);
-    replay_layer(render, world, VIEW_GUI);
+    ClearBackground(BLANK);
+    replay_layer(render, VIEW_GUI);
     EndTextureMode();
 
-    /* present */
+    /* present, in the composition order the sorted stream describes:
+     * world composite -> world-layer text -> GUI items -> GUI-layer
+     * text.  Text still rides at window resolution (crisp at any
+     * window size instead of resampled with the pixel surface), but per
+     * layer, so text no longer floats above later composition. */
     BeginDrawing();
     ClearBackground(BLACK);
     Rectangle screen = { 0.0f, 0.0f, (float)GetScreenWidth(),
                          (float)GetScreenHeight() };
+    DrawTexturePro(render->app_surface.texture, rect_flip(), screen,
+                   (Vector2){ 0, 0 }, 0.0f, WHITE);
+    draw_text_items_window_scale(render, VIEW_WORLD);
+    /* the GUI canvas holds straight-alpha colours pre-blended onto
+     * transparency (rgb * a, a); premultiplied compositing reproduces
+     * exactly what drawing the items over the world would produce */
+    BeginBlendMode(BLEND_ALPHA_PREMULTIPLY);
     DrawTexturePro(render->gui_surface.texture, rect_flip(), screen,
                    (Vector2){ 0, 0 }, 0.0f, WHITE);
-    /* text rides on top at window resolution: crisp at any window size
-     * instead of resampled with the pixel surface */
-    draw_text_items_window_scale(render);
+    EndBlendMode();
+    draw_text_items_window_scale(render, VIEW_GUI);
     EndDrawing();
 }
 

@@ -64,13 +64,12 @@ void title_draw(int shadow)
                      y + wave1, 1.0f, 1.0f, tint, alpha);
     view_sprite_part(depth, LONGO_SPR_TITLE, 0, 0, 69, 191, 149, x,
                      y + 48.0f + wave2 + 2.0f, 1.0f, 1.0f, tint, alpha);
-    /* "Press Any Key to Start", gradient shadowed, centred (font 1);
-     * hidden once the key is pressed because the text pass rides on top
-     * of the transition wipe */
-    if (!started) {
-        view_text(depth, 1, "Press Any Key to Start", 152.0f,
-                  188.0f + wave1 * 0.5f + 1.0f, 1.0f, view_rgb(51, 17, 0));
-        view_text(depth, 1, "Press Any Key to Start", 152.0f,
-                  188.0f + wave1 * 0.5f, 1.0f, view_rgb(255, 235, 204));
-    }
+    /* "Press Any Key to Start", gradient shadowed, centred (font 1).
+     * Pushed until the room load resets the title: this is world-layer
+     * text, so the replay draws it under the GUI layer and the level
+     * wipe covers it like every other world item. */
+    view_text(depth, 1, "Press Any Key to Start", 152.0f,
+              188.0f + wave1 * 0.5f + 1.0f, 1.0f, view_rgb(51, 17, 0));
+    view_text(depth, 1, "Press Any Key to Start", 152.0f,
+              188.0f + wave1 * 0.5f, 1.0f, view_rgb(255, 235, 204));
 }

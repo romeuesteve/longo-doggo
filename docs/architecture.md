@@ -114,9 +114,14 @@ modern window sizes:
 - *Text*: a bitmap font at the 304x208 surface turns to mush, so UI
   text replays in the present pass at window resolution with Renogare
   (repo `assets/fonts`, converted to TrueType outlines and rasterized
-  at the drawn pixel size with point filtering — no blur). The in-world
-  house counter keeps the pixel digits bitmap font on purpose: it
-  should stay pixelated with the game. Alignment: font 0 bold =
+  at the drawn pixel size with point filtering — no blur). The present
+  pass composites world -> world-layer text -> GUI items -> GUI-layer
+  text, so text keeps its sorted composition position: the level wipe
+  covers world-layer text (the title prompt), and GUI-layer text draws
+  above its own layer only. It used to be redrawn above everything,
+  which forced the title prompt to hide itself during wipes. The
+  in-world house counter keeps the pixel digits bitmap font on purpose:
+  it should stay pixelated with the game. Alignment: font 0 bold =
   left-aligned, fonts 1/2 = centered.
 - *Dialogue panel*: the `sprDialogueBox` sheet is a 24x24 frame; the
   reconstruction renders a 9-slice instead (corners native, sides and
@@ -152,7 +157,9 @@ follow, the tail exception (a length-3 dog looping on four cells),
 scaled-wall stamping, pear sprites, hole rendering + the filled frame,
 the 9-slice bubble, house anchors, view snap, box push/hole fill,
 button/door counting, the win transition, retry and room-flow request
-gating (R never hijacks a closing wipe), and undo (steps, box
+gating (R never hijacks a closing wipe), the sorted GUI composition
+(wipe under the depth-0 text, the title prompt still pushed during
+wipes) and the shadow-composite item gating, and undo (steps, box
 pushes into holes, eaten apples, a backward press into the dog's own
 neck, and history dropped on a room load), plus fx pools recycling
 dead slots and the occupancy invariant (every solid-map cell mirrors a

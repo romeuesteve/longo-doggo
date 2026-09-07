@@ -1495,6 +1495,121 @@ static void test_clock_and_event_delivery(void)
     }
 }
 
+/* ---------------------------------------------------------------- */
+/* The draw stream describes the final composition                    */
+/* ---------------------------------------------------------------- */
+
+/* font-1 UI text items pushed into a layer (the title prompt, the
+ * LEVEL label; not the in-world digits font) */
+static int count_ui_texts(ViewLayer layer)
+{
+    int count;
+    const ViewItem *items = view_items(layer, &count);
+    int found = 0;
+    for (int i = 0; i < count; i++)
+        if (items[i].kind == VIEW_ITEM_TEXT && items[i].font_id == 1)
+            found++;
+    return found;
+}
+
+static int count_shadow_composites(void)
+{
+    int count;
+    const ViewItem *items = view_items(VIEW_WORLD, &count);
+    int found = 0;
+    for (int i = 0; i < count; i++)
+        if (items[i].kind == VIEW_ITEM_SHADOW_COMPOSITE) found++;
+    return found;
+}
+
+/* The replay draws text in its sorted composition position (world-layer
+ * text under the GUI layer, GUI-layer text on top of its own layer), so
+ * the stream must carry what the final frame needs: the title prompt
+ * stays pushed during wipes, the GUI depth order puts the wipe under
+ * the depth-0 text, and the shadow composite item carries the dog/shadow
+ * decision instead of the replay querying gameplay state. */
+static void test_draw_composition_order(void)
+{
+    SimInput input;
+    memset(&input, 0, sizeof(input));
+
+    sim_init(42u);
+
+    /* the title prompt is world-layer text: two font-1 items, and the
+     * shadow composite is emitted (title room has shadows, dog alive) */
+    world_draw();
+    assert(count_ui_texts(VIEW_WORLD) == 2);
+    assert(count_ui_texts(VIEW_GUI) == 0);
+    assert(count_shadow_composites() == 1);
+
+    input.pressed_any = 1;
+    tick_with(&input);
+    assert(transition_state()->phase == TRANSITION_OPENING);
+
+    /* during the wipe the prompt stays in the stream (the old stream
+     * hid it because the replay deferred all text above the GUI) and
+     * the GUI wipe items that now cover it are pushed */
+    world_draw();
+    assert(count_ui_texts(VIEW_WORLD) == 2);
+    {
+        int count;
+        const ViewItem *items = view_items(VIEW_GUI, &count);
+        int wipes = 0;
+        for (int i = 0; i < count; i++)
+            if (items[i].kind == VIEW_ITEM_SPRITE &&
+                items[i].sprite == LONGO_SPR_TRANSITION)
+                wipes++;
+        assert(wipes == 8); /* 4 rows x shadow + fill */
+    }
+
+    /* ride the wipe into the tutorial room; its dialogue is active */
+    tick_idle(200);
+    assert(world.room_index == SIM_ROOM_TUTORIAL);
+    assert(dialogue_active());
+
+    /* request a retry so the wipe and the dialogue share VIEW_GUI, then
+     * check the sorted draw order: higher depth sorts earlier (drawn
+     * further back), so the depth-2 wipe sprites and the depth-1 wipe
+     * rect + dialogue panel draw before the depth-0 text — the text's
+     * sorted position is its true position, nothing defers it */
+    input.pressed_r = 1;
+    tick_with(&input);
+    assert(transition_state()->phase == TRANSITION_OPENING);
+
+    world_draw();
+    /* the replay sorts at frame start; emulate it before reading the
+     * sorted draw order */
+    view_sort();
+    {
+        int count;
+        const ViewItem *items = view_items(VIEW_GUI, &count);
+        int last_cover_pos = -1, first_text_pos = count;
+        for (int pos = 0; pos < count; pos++) {
+            const ViewItem *it = &items[view_order_at(VIEW_GUI, pos)];
+            if (it->depth > 0) {
+                last_cover_pos = pos;
+            } else {
+                /* everything at depth 0 in the GUI layer is text */
+                assert(it->kind == VIEW_ITEM_TEXT ||
+                       it->kind == VIEW_ITEM_TEXT_WRAPPED);
+                if (pos < first_text_pos) first_text_pos = pos;
+            }
+        }
+        assert(last_cover_pos >= 0);
+        assert(first_text_pos < count);
+        assert(first_text_pos > last_cover_pos);
+    }
+
+    /* the composite item is the only shadow decision the replay gets:
+     * emitted while the dog lives, gone when it does not */
+    dog_set_alive(false);
+    world_draw();
+    assert(count_shadow_composites() == 0);
+    dog_set_alive(true);
+    world_draw();
+    assert(count_shadow_composites() == 1);
+}
+
 /* Registered in CTest with WILL_FAIL: it must exit non-zero in every
  * build configuration.  The side effect inside the assert proves check
  * expressions really evaluate; if -DNDEBUG ever strips them again, the
@@ -1530,6 +1645,7 @@ static const Scenario scenarios[] = {
     { "occupancy_matches_entities", test_occupancy_matches_entities },
     { "new_game_is_deterministic", test_new_game_is_deterministic },
     { "clock_and_event_delivery", test_clock_and_event_delivery },
+    { "draw_composition_order", test_draw_composition_order },
 };
 
 static void run_scenario(const Scenario *s)
