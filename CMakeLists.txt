@@ -8,6 +8,10 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 option(LONGO_DOGGO_BUILD_GAME "Build the Longo Doggo executable when its sources are present" ON)
 option(LONGO_DOGGO_BUILD_TESTS "Build the raylib-free gameplay smoke test" ON)
+# Manual diagnostic: opens a hidden window and asserts the present-pass
+# composition contracts on a real GPU (run the executable from the repo
+# root).  Never a ctest — smoke environments have no display.
+option(LONGO_DOGGO_BUILD_RENDER_PROBE "Build the hidden-window render probe" OFF)
 set(LONGO_DOGGO_PLATFORM "auto" CACHE STRING "Build platform: auto, native, or web")
 set_property(CACHE LONGO_DOGGO_PLATFORM PROPERTY STRINGS auto native web)
 
@@ -206,7 +210,17 @@ if(LONGO_DOGGO_BUILD_GAME)
     else()
         message(STATUS "Longo Doggo executable is not added; missing source files:")
         foreach(source IN LISTS LONGO_GAME_MISSING_SOURCES)
-            message(STATUS "  ${source}")
+            message(STATUS "    ${source}")
         endforeach()
+    endif()
+
+    # Offscreen render-contract probe (see tests/render_probe.c).  Opt-in
+    # because it needs a display and GPU; it is not registered with ctest.
+    # render.c lives in the game target only, so the probe compiles it in.
+    if(LONGO_DOGGO_BUILD_RENDER_PROBE AND LONGO_DOGGO_PLATFORM STREQUAL "native"
+           AND NOT LONGO_GAME_MISSING_SOURCES)
+        add_executable(longo_render_probe tests/render_probe.c src/render.c)
+        target_compile_features(longo_render_probe PRIVATE c_std_99)
+        target_link_libraries(longo_render_probe PRIVATE longo_core raylib)
     endif()
 endif()
