@@ -126,9 +126,15 @@ typedef struct LongoRoomValidation {
     char first_violation[192]; /* room name + cause, "" when clean */
 } LongoRoomValidation;
 
-/* Validate catalog room `index` against the sim grid and entity pool
- * capacities.  Returns true when clean; `out` (may be NULL) carries the
- * counts and the first violation's description. */
+/* Validate one room table against the sim grid and entity pool
+ * capacities.  Works on any table — a catalog entry or a hand-built
+ * one.  Returns true when clean; `out` (may be NULL) carries the counts
+ * and the first violation's description. */
+bool longo_room_data_validate(const LongoRoom *room, LongoRoomValidation *out);
+
+/* Validate catalog room `index`: the table check above, plus the
+ * catalog-level requirement that every in-play room owns its tile map
+ * entry.  Returns true when clean; `out` (may be NULL). */
 bool longo_room_validate(int room_index, LongoRoomValidation *out);
 
 /* Named play indices into the room catalog (level_data.c).  The catalog

@@ -1931,6 +1931,119 @@ static void test_room_catalog_loads_clean(void)
     }
 }
 
+/* ---------------------------------------------------------------- */
+/* Malformed room data must be rejected by the same validation path    */
+/* the loader uses (load_room aborts on a violation; here the          */
+/* validator is exercised directly over synthesized tables).           */
+
+static LongoRoom make_bad_room(const char *name, int width, int height,
+                               const LongoRoomObject *objects, int count)
+{
+    LongoRoom room;
+    memset(&room, 0, sizeof(room));
+    room.name = name;
+    room.id = LONGO_ROOM_ID_COUNT; /* no catalog identity: table-local */
+    room.width = width;
+    room.height = height;
+    room.objects = objects;
+    room.object_count = count;
+    return room;
+}
+
+static void assert_room_rejected(const LongoRoom *room)
+{
+    LongoRoomValidation report;
+    assert(!longo_room_data_validate(room, &report));
+    assert(report.violations > 0);
+    assert(report.first_violation[0] != '\0');
+}
+
+static void test_room_validation_rejects_bad_rooms(void)
+{
+    LongoRoomValidation report;
+    LongoRoom room;
+    static const LongoRoomObject no_objects[1] = {
+        { LONGO_OBJ_FLOWER, 8, 8, 1, 1, 0 }
+    };
+    static LongoRoomObject many_apples[33];
+    static const LongoRoomObject two_dogs[] = {
+        { LONGO_OBJ_DOG, 40, 40, 1, 1, 0 },
+        { LONGO_OBJ_DOG, 80, 40, 1, 1, 0 }
+    };
+
+    /* every shipped room still validates clean, tile map included */
+    sim_init(42u);
+    for (int i = 0; i < longo_room_count(); i++) {
+        assert(longo_room(i) != NULL);
+        assert(longo_room_validate(i, &report));
+        assert(report.violations == 0);
+    }
+
+    /* a minimal hand-built room is accepted */
+    room = make_bad_room("rm_minimal", 304, 208, no_objects, 1);
+    assert(longo_room_data_validate(&room, &report));
+    assert(report.violations == 0);
+
+    /* pixel dims that miss whole cells */
+    room = make_bad_room("rm_odd", 305, 208, no_objects, 1);
+    assert_room_rejected(&room);
+    room = make_bad_room("rm_odd_h", 304, 100, no_objects, 1);
+    assert_room_rejected(&room);
+
+    /* zero and negative dimensions */
+    room = make_bad_room("rm_zero_w", 0, 208, no_objects, 1);
+    assert_room_rejected(&room);
+    room = make_bad_room("rm_zero_h", 304, 0, no_objects, 1);
+    assert_room_rejected(&room);
+    room = make_bad_room("rm_negative", -304, -208, no_objects, 1);
+    assert_room_rejected(&room);
+
+    /* dims beyond the sim grid */
+    room = make_bad_room("rm_huge", 400, 208, no_objects, 1);
+    assert_room_rejected(&room);
+    room = make_bad_room("rm_huge_h", 304, 400, no_objects, 1);
+    assert_room_rejected(&room);
+
+    /* one apple over the item pool (ITEMS_MAX 32) */
+    for (int i = 0; i < 33; i++) {
+        many_apples[i].object = LONGO_OBJ_APPLE;
+        many_apples[i].x = (float)((i % 19) * 16);
+        many_apples[i].y = (float)((i / 19) * 16);
+        many_apples[i].xscale = 1;
+        many_apples[i].yscale = 1;
+        many_apples[i].depth = 0;
+    }
+    room = make_bad_room("rm_apples", 304, 208, many_apples, 33);
+    assert_room_rejected(&room);
+    /* ...while exactly the capacity is fine */
+    room = make_bad_room("rm_apples_ok", 304, 208, many_apples, 32);
+    assert(longo_room_data_validate(&room, &report));
+    assert(report.violations == 0);
+
+    /* two dogs overwrite the single spawn */
+    room = make_bad_room("rm_two_dogs", 304, 208, two_dogs, 2);
+    assert_room_rejected(&room);
+
+    /* object ids outside the LongoObj enum range are malformed, not
+     * silently ignored */
+    {
+        static const LongoRoomObject zero_id[] = {
+            { 0, 16, 16, 1, 1, 0 }
+        };
+        static const LongoRoomObject past_id[] = {
+            { LONGO_OBJ_ONE + 1, 16, 16, 1, 1, 0 }
+        };
+        room = make_bad_room("rm_zero_id", 304, 208, zero_id, 1);
+        assert_room_rejected(&room);
+        room = make_bad_room("rm_past_id", 304, 208, past_id, 1);
+        assert_room_rejected(&room);
+    }
+
+    /* a NULL room table is a violation, not a crash */
+    assert(!longo_room_data_validate(NULL, &report));
+    assert(report.violations > 0);
+}
+
 /* Registered in CTest with WILL_FAIL: it must exit non-zero in every
  * build configuration.  The side effect inside the assert proves check
  * expressions really evaluate; if -DNDEBUG ever strips them again, the
@@ -1968,6 +2081,7 @@ static const Scenario scenarios[] = {
     { "clock_and_event_delivery", test_clock_and_event_delivery },
     { "draw_composition_order", test_draw_composition_order },
     { "room_catalog_loads_clean", test_room_catalog_loads_clean },
+    { "room_validation_rejects_bad_rooms", test_room_validation_rejects_bad_rooms },
 };
 
 static void run_scenario(const Scenario *s)

@@ -147,10 +147,9 @@ static bool object_cell_in_grid(const LongoRoom *room, float x, float y,
            cy < room->height / SIM_CELL;
 }
 
-bool longo_room_validate(int room_index, LongoRoomValidation *out)
+bool longo_room_data_validate(const LongoRoom *room, LongoRoomValidation *out)
 {
     LongoRoomValidation report;
-    const LongoRoom *room = longo_room(room_index);
     int cells_w, cells_h;
     RoomLoadCounts counts = {0};
 
@@ -158,7 +157,7 @@ bool longo_room_validate(int room_index, LongoRoomValidation *out)
     if (out) *out = report;
     if (room == NULL) {
         snprintf(report.first_violation, sizeof(report.first_violation),
-                 "catalog index %d out of range", room_index);
+                 "room table is NULL");
         report.violations++;
         if (out) *out = report;
         return false;
@@ -177,9 +176,27 @@ bool longo_room_validate(int room_index, LongoRoomValidation *out)
                  cells_w, cells_h, SIM_MAX_CELLS_W, SIM_MAX_CELLS_H);
         validation_fail(room, &report, detail);
     }
+    /* a zero or negative dimension carries no usable grid: every cell
+     * computation on it would index the solid map from outside */
+    if (cells_w <= 0 || cells_h <= 0) {
+        char detail[160];
+        snprintf(detail, sizeof(detail), "room is %dx%d cells, must be > 0",
+                 cells_w, cells_h);
+        validation_fail(room, &report, detail);
+    }
 
     for (int i = 0; i < room->object_count; i++) {
         const LongoRoomObject *p = &room->objects[i];
+        /* ids outside the LongoObj enum (level_data.h) are malformed
+         * data, never content: an unknown id must fail loudly instead of
+         * falling through the loader's ignore cases */
+        if (p->object < LONGO_OBJ_PEAR || p->object > LONGO_OBJ_ONE) {
+            char detail[160];
+            snprintf(detail, sizeof(detail), "object %d has unknown id %u", i,
+                     (unsigned)p->object);
+            validation_fail(room, &report, detail);
+            continue;
+        }
         switch (p->object) {
         case LONGO_OBJ_BOX:
         case LONGO_OBJ_HOLE:
@@ -258,6 +275,13 @@ bool longo_room_validate(int room_index, LongoRoomValidation *out)
             counts.dogs++;
             break;
         default:
+            /* ids the loader deliberately ignores (its default case
+             * mirrors this list): LONGO_OBJ_HIDDEN_BLOCK,
+             * LONGO_OBJ_TRANSITION, LONGO_OBJ_MOUSE, LONGO_OBJ_GOALUP,
+             * LONGO_OBJ_PAR_MODULE, LONGO_OBJ_POSTEFFECTS,
+             * LONGO_OBJ_DOGPART, LONGO_OBJ_SMOKE, LONGO_OBJ_BARK,
+             * LONGO_OBJ_DOGSPAWNER, LONGO_OBJ_ONE — render-side passes
+             * and editor-only objects carry no capacity */
             break; /* cosmetics and editor-only objects carry no capacity */
         }
     }
@@ -288,6 +312,36 @@ bool longo_room_validate(int room_index, LongoRoomValidation *out)
         validation_fail_capacity(room, &report, counts.wins, 1,
                                  "house win zones");
 
+    if (out) *out = report;
+    return report.violations == 0;
+}
+
+/* Catalog entry: the table check plus the catalog-level requirement
+ * that every in-play room owns its tile map entry (the lookup lives in
+ * room_tiles.c and is reached through its query function). */
+bool longo_room_validate(int room_index, LongoRoomValidation *out)
+{
+    LongoRoomValidation report;
+    const LongoRoom *room = longo_room(room_index);
+
+    memset(&report, 0, sizeof(report));
+    if (out) *out = report;
+    if (room == NULL) {
+        snprintf(report.first_violation, sizeof(report.first_violation),
+                 "catalog index %d out of range", room_index);
+        report.violations++;
+        if (out) *out = report;
+        return false;
+    }
+    if (!longo_room_data_validate(room, &report)) {
+        if (out) *out = report;
+        return false;
+    }
+    if (room_index < longo_room_play_count() && room_tiles_for(room) == NULL) {
+        validation_fail(room, &report, "in-play room has no tile map");
+        if (out) *out = report;
+        return false;
+    }
     if (out) *out = report;
     return report.violations == 0;
 }
