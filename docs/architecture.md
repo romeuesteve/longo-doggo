@@ -147,7 +147,8 @@ data: title flow, dialogue gating, press cadence + cooldown, chain
 follow, the tail exception (a length-3 dog looping on four cells),
 scaled-wall stamping, pear sprites, hole rendering + the filled frame,
 the 9-slice bubble, house anchors, view snap, box push/hole fill,
-button/door counting, the win transition, retry, and undo (steps, box
+button/door counting, the win transition, retry and room-flow request
+gating (R never hijacks a closing wipe), and undo (steps, box
 pushes into holes, eaten apples, a backward press into the dog's own
 neck, and history dropped on a room load), plus fx pools recycling
 dead slots. View-level asserts inspect the pushed `ViewItem`s

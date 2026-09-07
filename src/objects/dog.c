@@ -313,9 +313,6 @@ void dog_tick(const SimInput *input)
 {
     if (!dog.alive) return;
 
-    /* R retries unless a wipe is closing */
-    if (input->pressed_r && !transition_closing()) transition_request_retry();
-
     /* the title screen parks the dog */
     if (title_present()) dog.play = false;
 

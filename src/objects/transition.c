@@ -1,4 +1,4 @@
-﻿#include "transition.h"
+#include "transition.h"
 
 #include <stdio.h>
 
@@ -10,11 +10,8 @@ static TransitionState tr;
 void transition_reset(void)
 {
     /* initial wipe state */
-    tr.active = true;
-    tr.open = false;
-    tr.close = false;
-    tr.retry = false;
-    tr.next_lvl = false;
+    tr.phase = TRANSITION_IDLE;
+    tr.pending = TRANSITION_ACTION_NONE;
     tr.x = 304.0f;
     tr.text_y = -16.0f;
     tr.room_num = 1;
@@ -22,20 +19,21 @@ void transition_reset(void)
 
 const TransitionState *transition_state(void) { return &tr; }
 
-bool transition_closing(void) { return tr.close; }
+bool transition_closing(void) { return tr.phase == TRANSITION_CLOSING; }
 
 void transition_request_retry(void)
 {
-    tr.active = true;
-    tr.retry = true;
-    tr.open = true;
+    /* one action per wipe: the retry replaces any pending advance */
+    tr.pending = TRANSITION_ACTION_RETRY;
+    tr.phase = TRANSITION_OPENING;
 }
 
 void transition_request_next(void)
 {
-    tr.active = true;
-    tr.next_lvl = true;
-    tr.open = true;
+    /* one action per wipe: a retry already pending keeps its wipe */
+    if (tr.pending == TRANSITION_ACTION_RETRY) return;
+    tr.pending = TRANSITION_ACTION_NEXT_ROOM;
+    tr.phase = TRANSITION_OPENING;
 }
 
 void transition_count_win(void) { tr.room_num++; }
@@ -43,38 +41,41 @@ void transition_count_win(void) { tr.room_num++; }
 /* Draw pass, replayed as pushed. */
 void transition_tick(SimWorld *w)
 {
-    if (!tr.active) return;
-    if (tr.open) {
+    switch (tr.phase) {
+    case TRANSITION_OPENING:
         if (tr.x >= -20.0f) {
             tr.x += (-31.0f - tr.x) * 0.04f;
         } else {
+            /* midpoint: the screen is covered; apply the pending room
+             * change and start uncovering the (new) room */
             tr.x = 304.0f;
-            tr.close = true;
-            if (tr.retry) {
+            tr.phase = TRANSITION_CLOSING;
+            if (tr.pending == TRANSITION_ACTION_RETRY)
                 sim_room_restart(w);
-                tr.retry = false;
-            } else if (tr.next_lvl) {
+            else if (tr.pending == TRANSITION_ACTION_NEXT_ROOM)
                 sim_room_goto_next(w);
-                tr.next_lvl = false;
-            }
-            tr.open = false;
+            tr.pending = TRANSITION_ACTION_NONE;
         }
         if (tr.room_num <= 7)
             tr.text_y += (208.0f / 2 + 4 - tr.text_y) * 0.05f;
-    } else if (tr.close) {
+        break;
+    case TRANSITION_CLOSING:
         /* four convergence passes per tick close the wipe fast enough. */
         for (int i = 0; i < 4; i++) {
             if (tr.x >= -63.0f) {
                 tr.x += (-64.0f - tr.x) * 0.02f;
             } else {
-                tr.close = false;
+                tr.phase = TRANSITION_IDLE;
             }
         }
         if (tr.room_num <= 7)
             tr.text_y += (208.0f + 16 - tr.text_y) * 0.16f;
-    } else {
+        break;
+    case TRANSITION_IDLE:
+    default:
         tr.x = 304.0f;
         tr.text_y = -16.0f;
+        break;
     }
 }
 
@@ -85,12 +86,11 @@ void transition_tick(SimWorld *w)
 
 void transition_draw(void)
 {
-    if (!tr.active) return;
     view_layer(VIEW_GUI);
     ViewColor color2 = view_rgb(113 - 10, 153 - 10, 61 - 10);
     ViewColor color = view_rgb(141 - 10, 199 - 10, 63 - 10);
 
-    if (tr.open) {
+    if (tr.phase == TRANSITION_OPENING) {
         for (int i = 0; i < 4; i++) {
             view_sprite(2, LONGO_SPR_TRANSITION, 0, tr.x,
                         (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f, color2,
@@ -101,7 +101,7 @@ void transition_draw(void)
         if (tr.x + 32.0f > 0.0f)
             view_rect(1, tr.x + 32.0f, 0.0f, 304.0f - (tr.x + 32.0f),
                       208.0f, color);
-    } else if (tr.close) {
+    } else if (tr.phase == TRANSITION_CLOSING) {
         for (int i = 0; i < 4; i++) {
             view_sprite(2, LONGO_SPR_TRANSITION, 1, tr.x,
                         (float)(i * 64) + 7.0f, 1.0f, 1.0f, 0.0f, color2,
@@ -113,7 +113,7 @@ void transition_draw(void)
             view_rect(1, 0.0f, 0.0f, tr.x + 32.0f, 208.0f, color);
     }
 
-    if (tr.room_num <= 7 && (tr.open || tr.close)) {
+    if (tr.room_num <= 7 && tr.phase != TRANSITION_IDLE) {
         char text[128];
         snprintf(text, sizeof(text), "LEVEL %d", tr.room_num);
         view_text(0, 1, text, 152.0f, tr.text_y + 2.0f, 1.0f,

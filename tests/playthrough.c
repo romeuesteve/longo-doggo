@@ -34,9 +34,9 @@ int main(void)
     tick(&in);
     in.pressed_any = 0;
     for (int i = 0; i < 27; i++) tick(&in);
-    printf("after any key + 27 ticks: room=%d (%s) trans(open=%d close=%d num=%d)\n",
-           world.room_index, world.room->name, transition_state()->open,
-           transition_state()->close, transition_state()->room_num);
+    printf("after any key + 27 ticks: room=%d (%s) trans(phase=%d num=%d)\n",
+           world.room_index, world.room->name,
+           (int)transition_state()->phase, transition_state()->room_num);
 
     /* seven spaces at 250 ms (15 tick) intervals */
     for (int i = 0; i < 7; i++) {
@@ -58,10 +58,10 @@ int main(void)
         tick(&in);
         if (t % 30 == 0) {
             printf("hold r t=%d: dog=(%d,%d) len=%d alive=%d room=%d "
-                   "trans(open=%d close=%d num=%d) win_ready=%d remain=%d\n",
+                   "trans(phase=%d num=%d) win_ready=%d remain=%d\n",
                    t, dog_cx(), dog_cy(), dog_length(), dog_alive() ? 1 : 0,
-                   world.room_index, transition_state()->open,
-                   transition_state()->close, transition_state()->room_num,
+                   world.room_index, (int)transition_state()->phase,
+                   transition_state()->room_num,
                    house_win_ready() ? 1 : 0, house_remain());
         }
     }

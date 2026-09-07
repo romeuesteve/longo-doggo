@@ -292,21 +292,27 @@ void sim_tick(SimWorld *w, const SimInput *input)
      * over it, so buttons/doors/the house re-derive in the same frame */
     undo_tick(&w->input);
 
-    /* 1. dog step + pickups */
+    /* 1. room-control input: R retries the room unless a wipe is
+     * closing (a closing wipe's pending room change wins).  Room-flow
+     * policy lives here with the tick order, not in an object script. */
+    if (w->input.pressed_r && !transition_closing())
+        transition_request_retry();
+
+    /* 2. dog step + pickups */
     dog_tick(&w->input);
 
-    /* 2. world object steps */
+    /* 3. world object steps */
     button_tick();
     door_tick(button_all_pressed());
     house_tick(dog_alive() ? dog_length() : -1);
 
-    /* 3. title -> transition request */
+    /* 4. title -> transition request */
     if (w->room_loaded_tick != w->tick) title_tick(&w->input);
 
-    /* 4. transition FSM (may reload the room mid-tick) */
+    /* 5. transition FSM (may reload the room mid-tick) */
     transition_tick(w);
 
-    /* 5. dialogue (skipped on the tick a room loads, so a fresh room's
+    /* 6. dialogue (skipped on the tick a room loads, so a fresh room's
      * dialogue does not advance immediately) */
     if (w->room_loaded_tick != w->tick) dialogue_tick(&w->input);
 }

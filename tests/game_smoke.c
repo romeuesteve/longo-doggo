@@ -102,12 +102,14 @@ static void test_title_flow_and_room_order(void)
     assert(world.room_index == SIM_ROOM_TITLE);
     assert(strcmp(world.room->name, "rm_title_screen") == 0);
     assert(title_present());
-    assert(transition_state()->active); /* active from the title room */
+    assert(transition_state()->room_num == 1); /* label counts from 1 */
     assert(dog_alive());
     assert(dog_length() == 5);
 
     input.pressed_any = 1;
     tick_with(&input);
+    assert(transition_state()->phase == TRANSITION_OPENING); /* the title
+                                                                starts the wipe */
     tick_idle(200);
     assert(world.room_index == SIM_ROOM_TUTORIAL);
     assert(strcmp(world.room->name, "rm_tutorial") == 0);
@@ -576,7 +578,7 @@ static void test_buttons_door_win_retry(void)
                  sim_cell_y(house_win_zone_cell(0)));
     tick_idle(2);
     assert(!house_win_alive());
-    assert(transition_state()->next_lvl);
+    assert(transition_state()->pending == TRANSITION_ACTION_NEXT_ROOM);
     tick_idle(200);
     assert(world.room_index == SIM_ROOM_LEVEL3);
     assert(strcmp(world.room->name, "rm_level3") == 0);
@@ -600,6 +602,107 @@ static void test_retry_reloads_room(void)
     assert(dog_length() == 5);
     assert(dog_play()); /* the room has no dialogue, so retry leaves
                            the dog playable */
+}
+
+/* Room-flow policy lives in sim_tick(): R requests a retry, a closing
+ * wipe's pending room change beats R, and mashing R mid-wipe still
+ * queues exactly one reload. */
+static void test_room_flow_requests(void)
+{
+    SimInput input;
+    memset(&input, 0, sizeof(input));
+
+    /* (a) R reloads the current room: a moved box snaps back and the
+     * dog respawns fresh */
+    start_playable_in_tutorial();
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+    box_set_cell(0, sim_cell_of(2, 2)); /* mark the box moved */
+    tick_idle(1);
+    input.pressed_r = 1;
+    tick_with(&input);
+    tick_idle(200);
+    assert(world.room_index == SIM_ROOM_LEVEL1);
+    assert(box_cell(0) == sim_cell_of(6, 5)); /* back at its spawn */
+    assert(dog_alive());
+    assert(dog_length() == 5);
+    assert(dog_play()); /* no dialogue here: retry keeps the dog playable */
+
+    /* (b) win into the house, then mash R during the closing wipe: the
+     * pending next-room action must not be hijacked into a retry */
+    for (int i = 0; i < button_count(); i++)
+        box_set_cell(i, button_zone_cell(i, 0));
+    tick_idle(1);
+    assert(door_open(0));
+    for (int j = 0; j < box_count(); j++) {
+        if (box_alive(j)) box_set_cell(j, sim_cell_of(0, 0));
+    }
+    dog_set_alive(false);
+    tick_idle(1);
+    dog_set_alive(true);
+    dog_set_length(0);
+    dog_teleport(sim_cell_x(button_zone_cell(0, 0)),
+                 sim_cell_y(button_zone_cell(0, 0)));
+    tick_idle(1);
+    dog_set_length(2);
+    tick_idle(1);
+    assert(house_remain() == 0);
+    assert(house_win_alive());
+    dog_teleport(sim_cell_x(house_win_zone_cell(0)),
+                 sim_cell_y(house_win_zone_cell(0)));
+    tick_idle(2);
+    assert(!house_win_alive());
+    assert(transition_state()->pending == TRANSITION_ACTION_NEXT_ROOM);
+    {
+        int guard = 0;
+        while (!transition_closing() && guard < 400) {
+            tick_idle(1);
+            guard++;
+        }
+        assert(transition_closing());
+        while (transition_closing() && guard < 800) {
+            input.pressed_r = 1;
+            tick_with(&input);
+            input.pressed_r = 0;
+            guard++;
+        }
+        /* the R presses during the closing wipe were gated away */
+        assert(transition_state()->phase == TRANSITION_IDLE);
+    }
+    assert(world.room_index == SIM_ROOM_LEVEL3);
+    assert(strcmp(world.room->name, "rm_level3") == 0);
+    tick_idle(30);
+    assert(transition_state()->phase == TRANSITION_IDLE); /* no retry wipe
+                                                             followed */
+    assert(world.room_index == SIM_ROOM_LEVEL3);
+    assert(dog_alive());
+    assert(dog_length() == 5);
+
+    /* (c) R pressed on every tick of the wipe: exactly one reload, the
+     * dog stays sane */
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+    input.pressed_r = 1;
+    tick_with(&input);
+    {
+        int guard = 0;
+        while (transition_state()->phase == TRANSITION_OPENING &&
+               guard < 400) {
+            tick_with(&input); /* a fresh R edge every tick */
+            guard++;
+        }
+        assert(transition_closing()); /* the wipe ran, reload included */
+    }
+    tick_idle(200);
+    assert(world.room_index == SIM_ROOM_LEVEL1);
+    assert(dog_alive());
+    assert(dog_length() == 5);
+    {
+        long loaded = world.room_loaded_tick;
+        tick_idle(60);
+        assert(world.room_loaded_tick == loaded); /* no second reload */
+        assert(transition_state()->phase == TRANSITION_IDLE);
+    }
 }
 
 /* one undo press, spaced like a movement press */
@@ -856,6 +959,7 @@ static const Scenario scenarios[] = {
     { "walls_and_push_rules", test_walls_and_push_rules },
     { "buttons_door_win_retry", test_buttons_door_win_retry },
     { "retry_reloads_room", test_retry_reloads_room },
+    { "room_flow_requests", test_room_flow_requests },
     { "fx_pools_reuse_dead_slots", test_fx_pools_reuse_dead_slots },
     { "undo", test_undo },
     { "door_open_window_solidity", test_door_open_window_solidity },

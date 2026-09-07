@@ -77,6 +77,7 @@ if(LONGO_DOGGO_BUILD_TESTS AND LONGO_DOGGO_PLATFORM STREQUAL "native")
         walls_and_push_rules
         buttons_door_win_retry
         retry_reloads_room
+        room_flow_requests
         fx_pools_reuse_dead_slots
         undo
         door_open_window_solidity)
