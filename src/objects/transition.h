@@ -27,6 +27,7 @@ typedef enum TransitionAction {
 typedef struct TransitionState {
     TransitionPhase phase;
     TransitionAction pending; /* applied at the opening wipe's midpoint */
+    bool pending_win; /* pending advance has incremented the level label */
     float x, text_y;
     int room_num; /* win counter; labels levels ("LEVEL 1", "LEVEL 2", ...) */
 } TransitionState;
@@ -40,7 +41,7 @@ bool transition_closing(void); /* true while the closing wipe runs; gates
 
 void transition_request_retry(void);
 void transition_request_next(void);
-void transition_count_win(void); /* room_num++ (label counts wins) */
+void transition_request_win(void); /* advance and count the pending win */
 
 /* View. */
 void transition_draw(void); /* GUI layer */

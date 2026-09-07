@@ -614,6 +614,27 @@ static void test_room_flow_requests(void)
     SimInput input;
     memset(&input, 0, sizeof(input));
 
+    /* Leaving the title does not count a win, so canceling it cannot
+     * reverse one. Repeated retries must leave the first level label. */
+    sim_init(42u);
+    input.pressed_any = 1;
+    tick_with(&input);
+    input.pressed_any = 0;
+    assert(transition_state()->pending == TRANSITION_ACTION_NEXT_ROOM);
+    input.pressed_r = 1;
+    tick_with(&input);
+    tick_with(&input);
+    input.pressed_r = 0;
+    assert(transition_state()->room_num == 1);
+    tick_idle(220);
+    assert(world.room_index == SIM_ROOM_TITLE);
+    input.pressed_any = 1;
+    tick_with(&input);
+    memset(&input, 0, sizeof(input));
+    tick_idle(220);
+    assert(world.room_index == SIM_ROOM_TUTORIAL);
+    assert(transition_state()->room_num == 1);
+
     /* (a) R reloads the current room: a moved box snaps back and the
      * dog respawns fresh */
     start_playable_in_tutorial();

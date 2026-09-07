@@ -280,8 +280,7 @@ static void resolve_pickups(void)
     }
 
     if (dog.alive && house_try_win(head)) {
-        transition_count_win();
-        transition_request_next();
+        transition_request_win();
     }
 }
 

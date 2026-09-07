@@ -12,6 +12,7 @@ void transition_reset(void)
     /* initial wipe state */
     tr.phase = TRANSITION_IDLE;
     tr.pending = TRANSITION_ACTION_NONE;
+    tr.pending_win = false;
     tr.x = 304.0f;
     tr.text_y = -16.0f;
     tr.room_num = 1;
@@ -26,22 +27,25 @@ void transition_request_retry(void)
     /* one action per wipe: the retry replaces any pending advance and
      * reverses the increment its win made, so the room reloads with the
      * label it had before the win */
-    if (tr.pending == TRANSITION_ACTION_NEXT_ROOM) tr.room_num--;
+    if (tr.pending_win) tr.room_num--;
+    tr.pending_win = false;
     tr.pending = TRANSITION_ACTION_RETRY;
     tr.phase = TRANSITION_OPENING;
 }
 
 void transition_request_next(void)
 {
-    /* one action per wipe: the advance replaces a pending retry too,
-     * and it keeps the increment its win just made — the exact mirror
-     * of request_retry's reversal, so room_num always reads one past
-     * the last room whose advance is pending or was applied */
+    /* The title advances without counting a win. */
     tr.pending = TRANSITION_ACTION_NEXT_ROOM;
     tr.phase = TRANSITION_OPENING;
 }
 
-void transition_count_win(void) { tr.room_num++; }
+void transition_request_win(void)
+{
+    if (!tr.pending_win) tr.room_num++;
+    tr.pending_win = true;
+    transition_request_next();
+}
 
 /* Draw pass, replayed as pushed. */
 void transition_tick(SimWorld *w)
@@ -60,6 +64,7 @@ void transition_tick(SimWorld *w)
             else if (tr.pending == TRANSITION_ACTION_NEXT_ROOM)
                 sim_room_goto_next(w);
             tr.pending = TRANSITION_ACTION_NONE;
+            tr.pending_win = false;
         }
         if (tr.room_num <= 7)
             tr.text_y += (208.0f / 2 + 4 - tr.text_y) * 0.05f;
