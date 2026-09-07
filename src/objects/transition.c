@@ -23,15 +23,20 @@ bool transition_closing(void) { return tr.phase == TRANSITION_CLOSING; }
 
 void transition_request_retry(void)
 {
-    /* one action per wipe: the retry replaces any pending advance */
+    /* one action per wipe: the retry replaces any pending advance and
+     * reverses the increment its win made, so the room reloads with the
+     * label it had before the win */
+    if (tr.pending == TRANSITION_ACTION_NEXT_ROOM) tr.room_num--;
     tr.pending = TRANSITION_ACTION_RETRY;
     tr.phase = TRANSITION_OPENING;
 }
 
 void transition_request_next(void)
 {
-    /* one action per wipe: a retry already pending keeps its wipe */
-    if (tr.pending == TRANSITION_ACTION_RETRY) return;
+    /* one action per wipe: the advance replaces a pending retry too,
+     * and it keeps the increment its win just made — the exact mirror
+     * of request_retry's reversal, so room_num always reads one past
+     * the last room whose advance is pending or was applied */
     tr.pending = TRANSITION_ACTION_NEXT_ROOM;
     tr.phase = TRANSITION_OPENING;
 }

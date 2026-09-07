@@ -705,6 +705,96 @@ static void test_room_flow_requests(void)
         assert(world.room_loaded_tick == loaded); /* no second reload */
         assert(transition_state()->phase == TRANSITION_IDLE);
     }
+
+    /* (d) R during the OPENING phase of a win wipe: the retry replaces
+     * the pending advance and reverses the win increment, so the same
+     * room reloads with its pre-win label */
+    memset(&input, 0, sizeof(input));
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+    {
+        int room_num_before = transition_state()->room_num;
+        for (int i = 0; i < button_count(); i++)
+            box_set_cell(i, button_zone_cell(i, 0));
+        tick_idle(1);
+        assert(door_open(0));
+        for (int j = 0; j < box_count(); j++) {
+            if (box_alive(j)) box_set_cell(j, sim_cell_of(0, 0));
+        }
+        dog_set_alive(false);
+        tick_idle(1);
+        dog_set_alive(true);
+        dog_set_length(0);
+        dog_teleport(sim_cell_x(button_zone_cell(0, 0)),
+                     sim_cell_y(button_zone_cell(0, 0)));
+        tick_idle(1);
+        dog_set_length(2);
+        tick_idle(1);
+        assert(house_remain() == 0);
+        assert(house_win_alive());
+        dog_teleport(sim_cell_x(house_win_zone_cell(0)),
+                     sim_cell_y(house_win_zone_cell(0)));
+        tick_idle(2);
+        assert(!house_win_alive());
+        assert(transition_state()->pending == TRANSITION_ACTION_NEXT_ROOM);
+        assert(transition_state()->room_num == room_num_before + 1);
+        input.pressed_r = 1; /* the first opening tick: before midpoint */
+        tick_with(&input);
+        input.pressed_r = 0;
+        assert(transition_state()->pending == TRANSITION_ACTION_RETRY);
+        tick_idle(200); /* ride the wipes to completion */
+        assert(world.room_index == SIM_ROOM_LEVEL1); /* retry semantics */
+        assert(strcmp(world.room->name, "rm_level1") == 0);
+        assert(transition_state()->room_num == room_num_before);
+        assert(transition_state()->pending == TRANSITION_ACTION_NONE);
+        assert(transition_state()->phase == TRANSITION_IDLE);
+        assert(dog_alive());
+        assert(dog_length() == 5);
+    }
+
+    /* (e) the mirror case: a win arriving while a retry wipe is pending
+     * keeps its increment and supersedes the retry */
+    sim_room_goto(world_ptr(), SIM_ROOM_LEVEL1);
+    tick_idle(2);
+    {
+        int room_num_before = transition_state()->room_num;
+        input.pressed_r = 1; /* retry requested before any win */
+        tick_with(&input);
+        input.pressed_r = 0;
+        assert(transition_state()->pending == TRANSITION_ACTION_RETRY);
+        /* the win setup runs inside the opening wipe, before midpoint */
+        for (int i = 0; i < button_count(); i++)
+            box_set_cell(i, button_zone_cell(i, 0));
+        tick_idle(1);
+        assert(door_open(0));
+        for (int j = 0; j < box_count(); j++) {
+            if (box_alive(j)) box_set_cell(j, sim_cell_of(0, 0));
+        }
+        dog_set_alive(false);
+        tick_idle(1);
+        dog_set_alive(true);
+        dog_set_length(0);
+        dog_teleport(sim_cell_x(button_zone_cell(0, 0)),
+                     sim_cell_y(button_zone_cell(0, 0)));
+        tick_idle(1);
+        dog_set_length(2);
+        tick_idle(1);
+        assert(house_remain() == 0);
+        assert(house_win_alive());
+        dog_teleport(sim_cell_x(house_win_zone_cell(0)),
+                     sim_cell_y(house_win_zone_cell(0)));
+        tick_idle(2);
+        assert(!house_win_alive());
+        assert(transition_state()->phase == TRANSITION_OPENING);
+        assert(transition_state()->pending == TRANSITION_ACTION_NEXT_ROOM);
+        assert(transition_state()->room_num == room_num_before + 1);
+        tick_idle(300); /* ride it out: an advance, not the retry */
+        assert(world.room_index == SIM_ROOM_LEVEL3);
+        assert(strcmp(world.room->name, "rm_level3") == 0);
+        assert(transition_state()->room_num == room_num_before + 1);
+        assert(transition_state()->pending == TRANSITION_ACTION_NONE);
+        assert(transition_state()->phase == TRANSITION_IDLE);
+    }
 }
 
 /* one undo press, spaced like a movement press */
